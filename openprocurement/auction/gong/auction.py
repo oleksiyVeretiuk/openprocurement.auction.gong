@@ -138,7 +138,7 @@ class Auction(DBServiceMixin,
                 func = self.end_auction
             elif stage['type'] == AUCTION_DEADLINE:
                 name = "Auction Deadline"
-                func = self.end_auction
+                func = self.deadline_end_auction
                 job_id = "auction:{}".format(AUCTION_DEADLINE)
             else:
                 continue
@@ -212,6 +212,13 @@ class Auction(DBServiceMixin,
             self.save_auction_document()
 
         self._end_auction_event.set()
+
+    def deadline_end_auction(self, stage):
+        redundant_job = SCHEDULER.get_job('auction:{}'.format(END))
+        if redundant_job:
+            redundant_job.remove()
+
+        self.end_auction(stage)
 
     def cancel_auction(self):
         self.generate_request_id()
