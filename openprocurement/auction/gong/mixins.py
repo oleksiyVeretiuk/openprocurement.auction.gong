@@ -122,7 +122,7 @@ class DBServiceMixin(object):
 
 class BiddersServiceMixin(object):
     """Mixin class to work with bids data"""
-    _bids_data = []
+    _bids_data = {}
 
     def add_bid(self, round_id, bid):
         if round_id not in self._bids_data:
@@ -255,6 +255,3 @@ class StagesServiceMixin(object):
         }
         stages.append(stage)
         return stages
-
-    def next_stage(self, switch_to_round=None):
-        pass
