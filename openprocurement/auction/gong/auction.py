@@ -24,7 +24,8 @@ from openprocurement.auction.gong.journal import (
     AUCTION_WORKER_SERVICE_STOP_AUCTION_WORKER,
     AUCTION_WORKER_SERVICE_END_FIRST_PAUSE,
     AUCTION_WORKER_API_AUCTION_CANCEL,
-    AUCTION_WORKER_API_AUCTION_NOT_EXIST
+    AUCTION_WORKER_API_AUCTION_NOT_EXIST,
+    AUCTION_WORKER_SERVICE_START_NEXT_STAGE
 )
 from openprocurement.auction.executor import AuctionsExecutor
 from openprocurement.auction.utils import (
@@ -111,6 +112,41 @@ class Auction(DBServiceMixin,
         self.mapping = {}
         self.use_api = False
 
+    def add_ending_main_round_job(self, stage, start):
+        # Add job that should be called after inactive bid stage
+        SCHEDULER.add_job(
+            self.end_auction,
+            'date',
+            args=(stage,),
+            run_date=start,
+            name='End of Auction',
+            id='auction:{}'.format(END)
+        )
+
+    def add_pause_job(self, stage, start):
+        SCHEDULER.add_job(
+            self.switch_to_next_stage,
+            'date',
+            args=(stage,),
+            run_date=start,
+            name='End of Pause',
+            id='auction:pause'
+        )
+
+    def switch_to_next_stage(self):
+        self.generate_request_id()
+
+        with lock_bids(self):
+            self.get_auction_document()
+            self.auction_document["current_stage"] += 1
+            self.save_auction_document()
+
+        LOGGER.info('---------------- Start stage {0} ----------------'.format(
+            self.auction_document["current_stage"]),
+            extra={"JOURNAL_REQUEST_ID": self.request_id,
+                   "MESSAGE_ID": AUCTION_WORKER_SERVICE_START_NEXT_STAGE}
+        )
+
     def schedule_auction(self):
         with update_auction_document(self):
             if self.debug:
@@ -131,28 +167,22 @@ class Auction(DBServiceMixin,
             id="auction:start"
         )
 
-        for index, stage in enumerate(self.auction_document['stages'][1:], 1):
+        for stage in self.auction_document['stages'][1:]:
             if stage['type'] == END:
-                name = 'End of Auction'
-                job_id = 'auction:{}'.format(END)
-                func = self.end_auction
+                self.add_ending_main_round_job(stage)
             elif stage['type'] == AUCTION_DEADLINE:
-                name = "Auction Deadline"
-                func = self.deadline_end_auction
-                job_id = "auction:{}".format(AUCTION_DEADLINE)
+                SCHEDULER.add_job(
+                    self.deadline_end_auction,
+                    'date',
+                    args=(stage,),
+                    run_date=self.convert_datetime(
+                        stage['start']
+                    ),
+                    name="Auction Deadline",
+                    id="auction:{}".format(AUCTION_DEADLINE)
+                )
             else:
                 continue
-
-            SCHEDULER.add_job(
-                func,
-                'date',
-                args=(stage,),
-                run_date=self.convert_datetime(
-                    self.auction_document['stages'][index]['start']
-                ),
-                name=name,
-                id=job_id
-            )
 
         self.server = run_server(
             self,
@@ -173,7 +203,7 @@ class Auction(DBServiceMixin,
             extra={"JOURNAL_REQUEST_ID": self.request_id,
                    "MESSAGE_ID": AUCTION_WORKER_SERVICE_END_FIRST_PAUSE}
         )
-        self.get_auction_info()
+        self.synchronize_auction_info()
         with lock_bids(self), update_auction_document(self):
             self.auction_document["current_stage"] = 0
             self.auction_document['current_phase'] = PRESTARTED
