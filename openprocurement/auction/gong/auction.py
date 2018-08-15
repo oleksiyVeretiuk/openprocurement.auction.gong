@@ -1,20 +1,15 @@
 import logging
 import sys
-
-from datetime import timedelta
-from yaml import safe_dump as yaml_dump
 from copy import deepcopy
-
+from datetime import datetime, timedelta
 from urlparse import urljoin
-from datetime import datetime
-from couchdb import Database, Session
 
+from apscheduler.schedulers.gevent import GeventScheduler
+from couchdb import Database, Session
 from gevent.event import Event
 from gevent.lock import BoundedSemaphore
-
 from requests import Session as RequestsSession
-from dateutil.tz import tzlocal
-from apscheduler.schedulers.gevent import GeventScheduler
+from yaml import safe_dump as yaml_dump
 
 from openprocurement.auction.gong.journal import (
     AUCTION_WORKER_SERVICE_AUCTION_RESCHEDULE,
@@ -103,7 +98,6 @@ class Auction(DBServiceMixin,
         self.worker_defaults = worker_defaults
         if self.worker_defaults.get('with_document_service', False):
             self.session_ds = RequestsSession()
-        self._bids_data = {}
         self.db = Database(str(self.worker_defaults["COUCH_DATABASE"]),
                            session=Session(retry_delays=range(10)))
         self.audit = {}
@@ -188,7 +182,7 @@ class Auction(DBServiceMixin,
 
     def start_auction(self):
         self.generate_request_id()
-        self.audit['timeline']['auction_start']['time'] = datetime.now(tzlocal()).isoformat()
+        self.audit['timeline']['auction_start']['time'] = datetime.now(TIMEZONE).isoformat()
         LOGGER.info(
             '---------------- Start auction  ----------------',
             extra={"JOURNAL_REQUEST_ID": self.request_id,
@@ -220,7 +214,7 @@ class Auction(DBServiceMixin,
             "Clear mapping", extra={"JOURNAL_REQUEST_ID": self.request_id}
         )
 
-        auction_end = datetime.now(tzlocal())
+        auction_end = datetime.now(TIMEZONE)
         stage = self.prepare_end_stage(auction_end)
         self.auction_document["stages"].append(stage)
         self.auction_document["current_stage"] = len(self.auction_document["stages"]) - 1
@@ -244,7 +238,7 @@ class Auction(DBServiceMixin,
             LOGGER.info("Auction {} canceled".format(self.auction_doc_id),
                         extra={'MESSAGE_ID': AUCTION_WORKER_SERVICE_AUCTION_CANCELED})
             self.auction_document["current_stage"] = -100
-            self.auction_document["endDate"] = datetime.now(tzlocal()).isoformat()
+            self.auction_document["endDate"] = datetime.now(TIMEZONE).isoformat()
             LOGGER.info("Change auction {} status to 'canceled'".format(self.auction_doc_id),
                         extra={'MESSAGE_ID': AUCTION_WORKER_SERVICE_AUCTION_STATUS_CANCELED})
             self.save_auction_document()
