@@ -238,20 +238,4 @@ class StagesServiceMixin(object):
             'time': ''
         }
         stages.append(stage)
-
-        stage_start += timedelta(seconds=ROUND_DURATION)
-        stage = {
-            'start': stage_start.isoformat(),
-            'type': END,
-            'time': ''
-        }
-        stages.append(stage)
-
-        stage_start = deadline
-        stage = {
-            'start': stage_start.isoformat(),
-            'type': AUCTION_DEADLINE,
-            'time': ''
-        }
-        stages.append(stage)
         return stages
