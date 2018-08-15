@@ -225,7 +225,7 @@ class AuctionAPIServiceMixin(
 
 class StagesServiceMixin(object):
 
-    def prepare_auction_stages(self, stage_start, deadline, auction_data, fast_forward=False):
+    def prepare_auction_stages(self, stage_start, auction_data, fast_forward=False):
         stages = [
             prepare_service_stage(start=stage_start.isoformat())
         ]

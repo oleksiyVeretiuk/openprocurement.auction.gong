@@ -295,14 +295,12 @@ class Auction(DBServiceMixin,
         if self.worker_defaults.get('sandbox_mode', False):
             self.auction_document['stages'] = self.prepare_auction_stages(
                 self.startDate,
-                self.deadline_time,
                 deepcopy(self.auction_document),
                 fast_forward=True
             )
         else:
             self.auction_document['stages'] = self.prepare_auction_stages(
                 self.startDate,
-                self.deadline_time,
                 deepcopy(self.auction_document)
             )
 
