@@ -168,10 +168,12 @@ class Auction(DBServiceMixin,
         )
 
         # Add job that switch current_stage to round stage
-        self.add_pause_job(self.auction_document['stages'][1]['start'])
+        start = self.convert_datetime(self.auction_document['stages'][1]['start'])
+        self.add_pause_job(start)
 
         # Add job that end auction
-        self.add_ending_main_round_job(self.auction_document['stages'][1]['start'] + timedelta(seconds=ROUND_DURATION))
+        start = self.convert_datetime(self.auction_document['stages'][1]['start']) + timedelta(seconds=ROUND_DURATION)
+        self.add_ending_main_round_job(start)
 
         self.server = run_server(
             self,
@@ -218,7 +220,7 @@ class Auction(DBServiceMixin,
             "Clear mapping", extra={"JOURNAL_REQUEST_ID": self.request_id}
         )
 
-        auction_end = datetime.now(tzlocal()).isoformat()
+        auction_end = datetime.now(tzlocal())
         stage = self.prepare_end_stage(auction_end)
         self.auction_document["stages"].append(stage)
         self.auction_document["current_stage"] = len(self.auction_document["stages"]) - 1
@@ -230,7 +232,7 @@ class Auction(DBServiceMixin,
         )
         LOGGER.info(self.audit)
 
-        self.auction_document['endDate'] = auction_end
+        self.auction_document['endDate'] = auction_end.isoformat()
         if self.put_auction_data(self._auction_data, self.auction_document):
             self.save_auction_document()
 
