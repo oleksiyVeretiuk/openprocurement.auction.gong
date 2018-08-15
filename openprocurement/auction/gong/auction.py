@@ -1,6 +1,7 @@
 import logging
 import sys
 
+from datetime import timedelta
 from yaml import safe_dump as yaml_dump
 from copy import deepcopy
 
@@ -54,8 +55,8 @@ from openprocurement.auction.gong.constants import (
     ADDITIONAL_LANGUAGES,
     PRESTARTED,
     END,
-    AUCTION_DEADLINE,
-    DEADLINE_HOUR
+    DEADLINE_HOUR,
+    ROUND_DURATION
 )
 
 
@@ -112,22 +113,20 @@ class Auction(DBServiceMixin,
         self.mapping = {}
         self.use_api = False
 
-    def add_ending_main_round_job(self, stage, start):
-        # Add job that should be called after inactive bid stage
+    def add_ending_main_round_job(self, start):
+        # Add job that should end auction
         SCHEDULER.add_job(
             self.end_auction,
             'date',
-            args=(stage,),
             run_date=start,
             name='End of Auction',
             id='auction:{}'.format(END)
         )
 
-    def add_pause_job(self, stage, start):
+    def add_pause_job(self, start):
         SCHEDULER.add_job(
             self.switch_to_next_stage,
             'date',
-            args=(stage,),
             run_date=start,
             name='End of Pause',
             id='auction:pause'
@@ -157,6 +156,7 @@ class Auction(DBServiceMixin,
             self.synchronize_auction_info()
             self.audit = prepare_audit()
 
+        # Add job that starts auction server
         SCHEDULER.add_job(
             self.start_auction,
             'date',
@@ -167,22 +167,11 @@ class Auction(DBServiceMixin,
             id="auction:start"
         )
 
-        for stage in self.auction_document['stages'][1:]:
-            if stage['type'] == END:
-                self.add_ending_main_round_job(stage)
-            elif stage['type'] == AUCTION_DEADLINE:
-                SCHEDULER.add_job(
-                    self.deadline_end_auction,
-                    'date',
-                    args=(stage,),
-                    run_date=self.convert_datetime(
-                        stage['start']
-                    ),
-                    name="Auction Deadline",
-                    id="auction:{}".format(AUCTION_DEADLINE)
-                )
-            else:
-                continue
+        # Add job that switch current_stage to round stage
+        self.add_pause_job(self.auction_document['stages'][1]['start'])
+
+        # Add job that end auction
+        self.add_ending_main_round_job(self.auction_document['stages'][1]['start'] + timedelta(seconds=ROUND_DURATION))
 
         self.server = run_server(
             self,
