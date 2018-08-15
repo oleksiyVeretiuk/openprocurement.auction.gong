@@ -211,25 +211,26 @@ class Auction(DBServiceMixin,
                 self.auction_document['current_stage']
             ))
 
-    def end_auction(self, stage):
+    def end_auction(self):
         LOGGER.info(
             '---------------- End auction ----------------',
             extra={"JOURNAL_REQUEST_ID": self.request_id,
                    "MESSAGE_ID": AUCTION_WORKER_SERVICE_END_AUCTION}
         )
+
         LOGGER.debug(
             "Stop server", extra={"JOURNAL_REQUEST_ID": self.request_id}
         )
         if self.server:
             self.server.stop()
-        delete_mapping(self.worker_defaults,
-                       self.auction_doc_id)
+
+        delete_mapping(self.worker_defaults, self.auction_doc_id)
         LOGGER.debug(
             "Clear mapping", extra={"JOURNAL_REQUEST_ID": self.request_id}
         )
 
         self.auction_document["current_stage"] = len(self.auction_document["stages"]) - 1
-        self.auction_document['current_phase'] = stage['type']
+
         # TODO: work with audit
         LOGGER.info(
             'Audit data: \n {}'.format(yaml_dump(self.audit)),
