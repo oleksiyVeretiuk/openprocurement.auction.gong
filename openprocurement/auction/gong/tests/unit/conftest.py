@@ -16,19 +16,15 @@ from pytz import timezone as tz
 from openprocurement.auction.gong.auction import Auction, SCHEDULER
 from openprocurement.auction.gong.mixins import LOGGER
 from openprocurement.auction.gong.tests.data.data import (
-    tender_data, lot_tender_data, features_tender_data, test_auction_document
+    tender_data, test_auction_document
 )
 from openprocurement.auction.gong.server import (
     app as worker_app, BidsForm
 )
-# from openprocurement.auction.tests.functional.main import update_auctionPeriod
 
 
 def update_auctionPeriod(data):
     new_start_time = (datetime.datetime.now(tzlocal()) + datetime.timedelta(seconds=1)).isoformat()
-    if 'lots' in data['data']:
-        for lot in data['data']['lots']:
-            lot['auctionPeriod']['startDate'] = new_start_time
     data['data']['auctionPeriod']['startDate'] = new_start_time
 
 
@@ -39,57 +35,18 @@ with open(worker_defaults_file_path) as stream:
     worker_defaults = yaml.load(stream)
 
 
-@pytest.yield_fixture(
-    scope="function",
-    params=[
-        {'tender_data': tender_data, 'lot_id': False},
-        {'tender_data': lot_tender_data, 'lot_id': lot_tender_data['data']['lots'][0]['id']}
-    ],
-    ids=['simple', 'multilot']
-)
-def universal_auction(request):
-    update_auctionPeriod(request.param['tender_data'])
-
-    yield Auction(
-        tender_id=request.param['tender_data']['data']['auctionID'],
-        worker_defaults=yaml.load(open(worker_defaults_file_path)),
-        auction_data=request.param['tender_data'],
-        lot_id=request.param['lot_id']
-    )
-
-@pytest.yield_fixture(scope="function")
-def auction():
+@pytest.yield_fixture(scope="class")
+def auction(request):
     update_auctionPeriod(tender_data)
 
-    yield Auction(
+    request.cls.auction = Auction(
         tender_id=tender_data['data']['auctionID'],
         worker_defaults=yaml.load(open(worker_defaults_file_path)),
         auction_data=tender_data,
-        lot_id=False
     )
 
 
-@pytest.yield_fixture(scope="function")
-def multilot_auction():
-    yield Auction(
-        tender_id=lot_tender_data['data']['auctionID'],
-        worker_defaults=yaml.load(open(worker_defaults_file_path)),
-        auction_data=lot_tender_data,
-        lot_id=lot_tender_data['data']['lots'][0]['id']
-    )
-
-
-@pytest.yield_fixture(scope="function")
-def features_auction():
-    yield Auction(
-        tender_id=features_tender_data['data']['auctionID'],
-        worker_defaults=yaml.load(open(worker_defaults_file_path)),
-        auction_data=features_tender_data,
-        lot_id=False
-    )
-
-
-@pytest.fixture(scope='function')
+@pytest.fixture(scope='class')
 def db(request):
     server = couchdb.Server("http://" + worker_defaults['COUCH_DATABASE'].split('/')[2])
     name = worker_defaults['COUCH_DATABASE'].split('/')[3]
@@ -111,18 +68,18 @@ class LogInterceptor(object):
         logger.addHandler(self.test_handler)
 
 
-@pytest.fixture(scope='function')
-def logger():
-    return LogInterceptor(LOGGER)
+@pytest.fixture(scope='class')
+def logger(request):
+    request.cls.log_interceptor = LogInterceptor(LOGGER)
 
 
-@pytest.fixture(scope='function')
-def scheduler():
-    return SCHEDULER
+@pytest.fixture(scope='class')
+def scheduler(request):
+    request.cls.SCHEDULER = SCHEDULER
 
 
-@pytest.fixture(scope='function')
-def app():
+@pytest.fixture(scope='class')
+def app(request):
     update_auctionPeriod(tender_data)
     logger = MagicMock()
     logger.name = 'some-logger'
@@ -130,7 +87,6 @@ def app():
         tender_id=tender_data['data']['auctionID'],
         worker_defaults=yaml.load(open(worker_defaults_file_path)),
         auction_data=tender_data,
-        lot_id=False
     )
     app_auction.bidders_data = tender_data['data']['bids']
     app_auction.db = MagicMock()
@@ -167,7 +123,7 @@ def app():
             'clients': {},
             'channels': {}
         }}
-    yield worker_app.test_client()
+    request.cls.worker_app = worker_app.test_client()
 
 
 def pytest_addoption(parser):
