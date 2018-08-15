@@ -78,7 +78,7 @@ class Auction(DBServiceMixin,
     def __init__(self, tender_id,
                  worker_defaults={},
                  auction_data={},
-                 lot_id=None):
+                 ):
         super(Auction, self).__init__()
         self.generate_request_id()
         self.tender_id = tender_id
