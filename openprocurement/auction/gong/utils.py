@@ -1,6 +1,40 @@
 # -*- coding: utf-8 -*-
-from copy import deepcopy
 from contextlib import contextmanager
+from datetime import datetime, time, timedelta
+
+
+def prepare_results_stage(bidder_id="", bidder_name="", amount="", time=""):
+    stage = dict(
+        bidder_id=bidder_id,
+        time=str(time),
+        amount=amount or 0,
+        label=dict(
+            en="Bidder #{}".format(bidder_name),
+            uk="Учасник №{}".format(bidder_name),
+            ru="Участник №{}".format(bidder_name)
+        )
+    )
+    return stage
+
+
+def get_round_ending_time(start_date, duration, deadline):
+    default_round_ending_time = start_date + timedelta(seconds=duration)
+    if default_round_ending_time < deadline:
+        return default_round_ending_time
+    return deadline
+
+
+def set_specific_hour(date_time, hour):
+    """Reset datetime's time to {hour}:00:00, while saving timezone data
+
+    Example:
+        2018-1-1T14:12:55+02:00 -> 2018-1-1T02:00:00+02:00, for hour=2
+        2018-1-1T14:12:55+02:00 -> 2018-1-1T18:00:00+02:00, for hour=18
+    """
+
+    return datetime.combine(
+        date_time.date(), time(hour % 24, tzinfo=date_time.tzinfo)
+    )
 
 
 def prepare_bid_stage(exist_stage_params, params={},  current_auction_value=0):

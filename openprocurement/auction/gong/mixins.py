@@ -1,27 +1,33 @@
-import logging
+# -*- coding: utf-8 -*-
 import json
-from datetime import timedelta
+import logging
+from collections import defaultdict as dd
 from copy import deepcopy
 from couchdb.http import HTTPError, RETRYABLE_ERRORS
+from datetime import timedelta, datetime
+from openprocurement.auction.gong.auction import SCHEDULER
 
 from openprocurement.auction.utils import (
     get_tender_data,
     get_latest_bid_for_bidder,
     make_request
 )
+from openprocurement.auction.worker_core.constants import TIMEZONE
 from openprocurement.auction.worker_core.utils import prepare_service_stage
 
 from openprocurement.auction.gong.utils import (
     get_result_info,
-    set_result_info
+    set_result_info,
+    set_specific_hour,
+    get_round_ending_time
 )
 from openprocurement.auction.gong.constants import (
-   BIDS_KEYS_FOR_COPY,
-   MAIN_ROUND,
-   END,
-   AUCTION_DEADLINE,
-   ROUND_DURATION,
-   PAUSE_DURATION,
+    BIDS_KEYS_FOR_COPY,
+    MAIN_ROUND,
+    END,
+    ROUND_DURATION,
+    PAUSE_DURATION,
+    DEADLINE_HOUR
 )
 from openprocurement.auction.worker_core.mixins import (
     RequestIDServiceMixin, AuditServiceMixin
@@ -34,12 +40,12 @@ from openprocurement.auction.gong.journal import (
     AUCTION_WORKER_DB_SAVE_DOC_ERROR,
     AUCTION_WORKER_DB_SAVE_DOC_UNHANDLED_ERROR,
     AUCTION_WORKER_API_APPROVED_DATA,
-    AUCTION_WORKER_BIDS_LATEST_BID_CANCELLATION,
     AUCTION_WORKER_API_AUCTION_RESULT_NOT_APPROVED,
     AUCTION_WORKER_SERVICE_END_BID_STAGE,
-    AUCTION_WORKER_SERVICE_START_STAGE,
     AUCTION_WORKER_SERVICE_START_NEXT_STAGE,
 )
+
+from openprocurement.auction.gong import utils
 
 
 LOGGER = logging.getLogger("Auction Worker")
@@ -122,12 +128,63 @@ class DBServiceMixin(object):
 
 class BiddersServiceMixin(object):
     """Mixin class to work with bids data"""
-    _bids_data = {}
+    _bids_data = dd(list)
 
-    def add_bid(self, round_id, bid):
-        if round_id not in self._bids_data:
-            self._bids_data[round_id] = []
-        self._bids_data[round_id].append(bid)
+    def add_bid(self, current_stage, bid):
+        LOGGER.info(
+            '------------------ Adding bid ------------------',
+        )
+        # Updating auction document with bid data
+        with utils.update_auction_document(self):
+            bid['bidder_name'] = self.mapping.get(bid['bidder_id'], False)
+            self._bids_data[bid['bidder_id']].append(deepcopy(bid))
+            result = utils.prepare_results_stage(**bid)
+            self.auction_document['stages'][current_stage].update(result)
+            self.auction_document['results'].append(result)
+        self.end_bid_stage(bid)
+
+    def end_bid_stage(self, bid):
+        self.generate_request_id()
+        LOGGER.info(
+            '---------------- End Bids Stage ----------------',
+            extra={"JOURNAL_REQUEST_ID": self.request_id,
+                   "MESSAGE_ID": AUCTION_WORKER_SERVICE_END_BID_STAGE}
+        )
+
+        # Cleaning up preplanned jobs
+        SCHEDULER.remove_all_jobs()
+
+        with utils.update_auction_document(self):
+            # Creating new stages
+            pause, main_round = self.prepare_auction_stages(
+                self.convert_datetime(bid['time']),
+                self.auction_document
+            )
+            self.auction_document['stages'].append(pause)
+            if main_round:
+                self.auction_document['stages'].append(main_round)
+
+            # Updating current stage
+            self.auction_document["current_stage"] += 1
+
+        LOGGER.info('---------------- Start stage {0} ----------------'.format(
+            self.auction_document["current_stage"]),
+            extra={"JOURNAL_REQUEST_ID": self.request_id,
+                   "MESSAGE_ID": AUCTION_WORKER_SERVICE_START_NEXT_STAGE}
+        )
+
+        # Adding jobs to scheduler
+        deadline = set_specific_hour(datetime.now(TIMEZONE), DEADLINE_HOUR)
+
+        if main_round:
+            round_start_date = self.convert_datetime(main_round['start'])
+            round_end_date = get_round_ending_time(
+                round_start_date, ROUND_DURATION, deadline
+            )
+            self.add_pause_job(round_start_date)
+            self.add_ending_main_round_job(round_end_date)
+        else:
+            self.add_ending_main_round_job(deadline)
 
     def filter_bids_keys(self, bids):
         filtered_bids_data = []
@@ -226,18 +283,20 @@ class AuctionAPIServiceMixin(
 class StagesServiceMixin(object):
 
     def prepare_auction_stages(self, stage_start, auction_data, fast_forward=False):
-        stages = [
-            prepare_service_stage(start=stage_start.isoformat())
-        ]
+        pause_stage = prepare_service_stage(start=stage_start.isoformat())
+        main_round_stage = {}
+        stages = [pause_stage, main_round_stage]
 
         stage_start += timedelta(seconds=PAUSE_DURATION)
-        stage = {
-            'start': stage_start.isoformat(),
-            'type': MAIN_ROUND,
-            'amount': auction_data['value']['amount'] + auction_data['minimalStep']['amount'],
-            'time': ''
-        }
-        stages.append(stage)
+        deadline = set_specific_hour(stage_start, DEADLINE_HOUR)
+        if stage_start < deadline:
+            main_round_stage.update({
+                'start': stage_start.isoformat(),
+                'type': MAIN_ROUND,
+                'amount': auction_data['value']['amount'] + auction_data['minimalStep']['amount'],
+                'time': ''
+            })
+
         return stages
 
     def prepare_end_stage(self, start):
