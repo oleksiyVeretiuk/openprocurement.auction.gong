@@ -233,13 +233,6 @@ class Auction(DBServiceMixin,
 
         self._end_auction_event.set()
 
-    def deadline_end_auction(self, stage):
-        redundant_job = SCHEDULER.get_job('auction:{}'.format(END))
-        if redundant_job:
-            redundant_job.remove()
-
-        self.end_auction(stage)
-
     def cancel_auction(self):
         self.generate_request_id()
         if self.get_auction_document():
