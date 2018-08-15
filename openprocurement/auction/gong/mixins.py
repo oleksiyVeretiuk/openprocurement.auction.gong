@@ -239,3 +239,10 @@ class StagesServiceMixin(object):
         }
         stages.append(stage)
         return stages
+
+    def prepare_end_stage(self, start):
+        stage = {
+            'start': start.isoformat(),
+            'type': END,
+        }
+        return stage

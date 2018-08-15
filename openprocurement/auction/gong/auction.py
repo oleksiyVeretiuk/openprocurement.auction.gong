@@ -218,6 +218,9 @@ class Auction(DBServiceMixin,
             "Clear mapping", extra={"JOURNAL_REQUEST_ID": self.request_id}
         )
 
+        auction_end = datetime.now(tzlocal()).isoformat()
+        stage = self.prepare_end_stage(auction_end)
+        self.auction_document["stages"].append(stage)
         self.auction_document["current_stage"] = len(self.auction_document["stages"]) - 1
 
         # TODO: work with audit
@@ -227,7 +230,7 @@ class Auction(DBServiceMixin,
         )
         LOGGER.info(self.audit)
 
-        self.auction_document['endDate'] = datetime.now(tzlocal()).isoformat()
+        self.auction_document['endDate'] = auction_end
         if self.put_auction_data(self._auction_data, self.auction_document):
             self.save_auction_document()
 
