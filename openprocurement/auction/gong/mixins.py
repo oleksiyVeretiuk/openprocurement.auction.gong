@@ -10,7 +10,8 @@ from openprocurement.auction.gong.auction import SCHEDULER
 from openprocurement.auction.utils import (
     get_tender_data,
     get_latest_bid_for_bidder,
-    make_request
+    make_request,
+    generate_request_id
 )
 from openprocurement.auction.worker_core.constants import TIMEZONE
 from openprocurement.auction.worker_core.utils import prepare_service_stage
@@ -30,7 +31,7 @@ from openprocurement.auction.gong.constants import (
     DEADLINE_HOUR
 )
 from openprocurement.auction.worker_core.mixins import (
-    RequestIDServiceMixin, AuditServiceMixin
+    AuditServiceMixin
 )
 from openprocurement.auction.gong.journal import (
     AUCTION_WORKER_DB_GET_DOC,
@@ -59,14 +60,14 @@ class DBServiceMixin(object):
     auction_doc_id = ''
 
     def get_auction_document(self, force=False):
-        self.generate_request_id()
+        request_id = generate_request_id()
         retries = self.db_request_retries
         while retries:
             try:
                 public_document = self.db.get(self.auction_doc_id)
                 if public_document:
                     LOGGER.info("Get auction document {0[_id]} with rev {0[_rev]}".format(public_document),
-                                extra={"JOURNAL_REQUEST_ID": self.request_id,
+                                extra={"JOURNAL_REQUEST_ID": request_id,
                                        "MESSAGE_ID": AUCTION_WORKER_DB_GET_DOC})
                     if not hasattr(self, 'auction_document'):
                         self.auction_document = public_document
@@ -92,7 +93,7 @@ class DBServiceMixin(object):
             retries -= 1
 
     def save_auction_document(self):
-        self.generate_request_id()
+        request_id = generate_request_id()
         public_document = deepcopy(dict(self.auction_document))
         retries = self.db_request_retries
         while retries:
@@ -100,7 +101,7 @@ class DBServiceMixin(object):
                 response = self.db.save(public_document)
                 if len(response) == 2:
                     LOGGER.info("Saved auction document {0} with rev {1}".format(*response),
-                                extra={"JOURNAL_REQUEST_ID": self.request_id,
+                                extra={"JOURNAL_REQUEST_ID": request_id,
                                        "MESSAGE_ID": AUCTION_WORKER_DB_SAVE_DOC})
                     self.auction_document['_rev'] = response[1]
                     return response
@@ -140,10 +141,10 @@ class BiddersServiceMixin(object):
         self.end_bid_stage(bid)
 
     def end_bid_stage(self, bid):
-        self.generate_request_id()
+        request_id = generate_request_id()
         LOGGER.info(
             '---------------- End Bids Stage ----------------',
-            extra={"JOURNAL_REQUEST_ID": self.request_id,
+            extra={"JOURNAL_REQUEST_ID": request_id,
                    "MESSAGE_ID": AUCTION_WORKER_SERVICE_END_BID_STAGE}
         )
 
@@ -165,7 +166,7 @@ class BiddersServiceMixin(object):
 
         LOGGER.info('---------------- Start stage {0} ----------------'.format(
             self.auction_document["current_stage"]),
-            extra={"JOURNAL_REQUEST_ID": self.request_id,
+            extra={"JOURNAL_REQUEST_ID": request_id,
                    "MESSAGE_ID": AUCTION_WORKER_SERVICE_START_NEXT_STAGE}
         )
 
@@ -232,7 +233,7 @@ class AuctionAPIServiceMixin(
         else:
             LOGGER.info(
                 "Auctions results not approved",
-                extra={"JOURNAL_REQUEST_ID": self.request_id,
+                extra={"JOURNAL_REQUEST_ID": request_id,
                        "MESSAGE_ID": AUCTION_WORKER_API_AUCTION_RESULT_NOT_APPROVED}
             )
 
@@ -254,22 +255,22 @@ class AuctionAPIServiceMixin(
         data = {'data': {'bids': posted_result_data}}
         LOGGER.info(
             "Approved data: {}".format(data),
-            extra={"JOURNAL_REQUEST_ID": self.request_id,
+            extra={"JOURNAL_REQUEST_ID": request_id,
                    "MESSAGE_ID": AUCTION_WORKER_API_APPROVED_DATA}
         )
         return make_request(
             self.tender_url + '/auction', data=data,
             user=self.api_token,
             method='post',
-            request_id=self.request_id, session=self.session
+            request_id=request_id, session=self.session
         )
 
     def get_auction_data(self):
-        self.generate_request_id()
+        request_id = generate_request_id()
         results = get_tender_data(
             self.tender_url,
             user=self.api_token,
-            request_id=self.request_id,
+            request_id=request_id,
             session=self.session
         )
 

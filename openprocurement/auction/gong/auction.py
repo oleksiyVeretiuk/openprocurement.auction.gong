@@ -26,7 +26,8 @@ from openprocurement.auction.gong.journal import (
 from openprocurement.auction.executor import AuctionsExecutor
 from openprocurement.auction.utils import (
     get_tender_data,
-    delete_mapping
+    delete_mapping,
+    generate_request_id
 )
 from openprocurement.auction.worker_core.constants import TIMEZONE
 from openprocurement.auction.gong.mixins import\
@@ -75,7 +76,6 @@ class Auction(DBServiceMixin,
                  auction_data={},
                  ):
         super(Auction, self).__init__()
-        self.generate_request_id()
         self.tender_id = tender_id
         self.auction_doc_id = tender_id
         self.tender_url = urljoin(
@@ -127,7 +127,7 @@ class Auction(DBServiceMixin,
         )
 
     def switch_to_next_stage(self):
-        self.generate_request_id()
+        request_id = generate_request_id()
 
         with lock_bids(self):
             self.get_auction_document()
@@ -136,7 +136,7 @@ class Auction(DBServiceMixin,
 
         LOGGER.info('---------------- Start stage {0} ----------------'.format(
             self.auction_document["current_stage"]),
-            extra={"JOURNAL_REQUEST_ID": self.request_id,
+            extra={"JOURNAL_REQUEST_ID": request_id,
                    "MESSAGE_ID": AUCTION_WORKER_SERVICE_START_NEXT_STAGE}
         )
 
@@ -175,17 +175,19 @@ class Auction(DBServiceMixin,
         )
 
     def wait_to_end(self):
+        request_id = generate_request_id()
+
         self._end_auction_event.wait()
         LOGGER.info("Stop auction worker",
-                    extra={"JOURNAL_REQUEST_ID": self.request_id,
+                    extra={"JOURNAL_REQUEST_ID": request_id,
                            "MESSAGE_ID": AUCTION_WORKER_SERVICE_STOP_AUCTION_WORKER})
 
     def start_auction(self):
-        self.generate_request_id()
+        request_id = generate_request_id()
         self.audit['timeline']['auction_start']['time'] = datetime.now(TIMEZONE).isoformat()
         LOGGER.info(
             '---------------- Start auction  ----------------',
-            extra={"JOURNAL_REQUEST_ID": self.request_id,
+            extra={"JOURNAL_REQUEST_ID": request_id,
                    "MESSAGE_ID": AUCTION_WORKER_SERVICE_END_FIRST_PAUSE}
         )
         self.synchronize_auction_info()
@@ -197,21 +199,22 @@ class Auction(DBServiceMixin,
             ))
 
     def end_auction(self):
+        request_id = generate_request_id()
         LOGGER.info(
             '---------------- End auction ----------------',
-            extra={"JOURNAL_REQUEST_ID": self.request_id,
+            extra={"JOURNAL_REQUEST_ID": request_id,
                    "MESSAGE_ID": AUCTION_WORKER_SERVICE_END_AUCTION}
         )
 
         LOGGER.debug(
-            "Stop server", extra={"JOURNAL_REQUEST_ID": self.request_id}
+            "Stop server", extra={"JOURNAL_REQUEST_ID": request_id}
         )
         if self.server:
             self.server.stop()
 
         delete_mapping(self.worker_defaults, self.auction_doc_id)
         LOGGER.debug(
-            "Clear mapping", extra={"JOURNAL_REQUEST_ID": self.request_id}
+            "Clear mapping", extra={"JOURNAL_REQUEST_ID": request_id}
         )
 
         auction_end = datetime.now(TIMEZONE)
@@ -222,7 +225,7 @@ class Auction(DBServiceMixin,
         # TODO: work with audit
         LOGGER.info(
             'Audit data: \n {}'.format(yaml_dump(self.audit)),
-            extra={"JOURNAL_REQUEST_ID": self.request_id}
+            extra={"JOURNAL_REQUEST_ID": request_id}
         )
         LOGGER.info(self.audit)
 
@@ -233,7 +236,6 @@ class Auction(DBServiceMixin,
         self._end_auction_event.set()
 
     def cancel_auction(self):
-        self.generate_request_id()
         if self.get_auction_document():
             LOGGER.info("Auction {} canceled".format(self.auction_doc_id),
                         extra={'MESSAGE_ID': AUCTION_WORKER_SERVICE_AUCTION_CANCELED})
@@ -247,7 +249,6 @@ class Auction(DBServiceMixin,
                         extra={'MESSAGE_ID': AUCTION_WORKER_SERVICE_AUCTION_NOT_FOUND})
 
     def reschedule_auction(self):
-        self.generate_request_id()
         if self.get_auction_document():
             LOGGER.info("Auction {} has not started and will be rescheduled".format(self.auction_doc_id),
                         extra={'MESSAGE_ID': AUCTION_WORKER_SERVICE_AUCTION_RESCHEDULE})
@@ -271,11 +272,9 @@ class Auction(DBServiceMixin,
         bids_information = get_result_info(auction)
         set_result_info(self.auction_document, bids_information)
 
-        self.generate_request_id()
         self.save_auction_document()
 
     def prepare_auction_document(self):
-        self.generate_request_id()
         public_document = self.get_auction_document()
 
         self.auction_document = {}
@@ -347,11 +346,12 @@ class Auction(DBServiceMixin,
 
     def _set_auction_data(self, prepare=False):
         # Get auction from api and set it to _auction_data
+        request_id = generate_request_id()
         if not self.debug:
             if prepare:
                 self._auction_data = get_tender_data(
                     self.tender_url,
-                    request_id=self.request_id,
+                    request_id=request_id,
                     session=self.session
                 )
             else:
@@ -360,7 +360,7 @@ class Auction(DBServiceMixin,
             auction_data = get_tender_data(
                 self.tender_url + '/auction',
                 user=self.worker_defaults["resource_api_token"],
-                request_id=self.request_id,
+                request_id=request_id,
                 session=self.session
             )
 
