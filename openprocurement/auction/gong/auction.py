@@ -43,7 +43,8 @@ from openprocurement.auction.gong.utils import (
     set_result_info,
     update_auction_document,
     prepare_audit,
-    lock_bids
+    lock_bids,
+    convert_datetime
 )
 from openprocurement.auction.gong.server import run_server
 from openprocurement.auction.gong.constants import (
@@ -154,7 +155,7 @@ class Auction(DBServiceMixin,
         SCHEDULER.add_job(
             self.start_auction,
             'date',
-            run_date=self.convert_datetime(
+            run_date=convert_datetime(
                 self.auction_document['stages'][0]['start']
             ),
             name="Start of Auction",
@@ -162,11 +163,11 @@ class Auction(DBServiceMixin,
         )
 
         # Add job that switch current_stage to round stage
-        start = self.convert_datetime(self.auction_document['stages'][1]['start'])
+        start = convert_datetime(self.auction_document['stages'][1]['start'])
         self.add_pause_job(start)
 
         # Add job that end auction
-        start = self.convert_datetime(self.auction_document['stages'][1]['start']) + timedelta(seconds=ROUND_DURATION)
+        start = convert_datetime(self.auction_document['stages'][1]['start']) + timedelta(seconds=ROUND_DURATION)
         self.add_ending_main_round_job(start)
 
         self.server = run_server(
@@ -366,7 +367,7 @@ class Auction(DBServiceMixin,
 
             if auction_data:
                 self._auction_data['data'].update(auction_data['data'])
-                self.startDate = self.convert_datetime(
+                self.startDate = convert_datetime(
                     self._auction_data['data']['auctionPeriod']['startDate']
                 )
                 del auction_data
@@ -377,20 +378,20 @@ class Auction(DBServiceMixin,
                     self.save_auction_document()
                     LOGGER.warning("Cancel auction: {}".format(
                         self.auction_doc_id
-                    ), extra={"JOURNAL_REQUEST_ID": self.request_id,
+                    ), extra={"JOURNAL_REQUEST_ID": request_id,
                               "MESSAGE_ID": AUCTION_WORKER_API_AUCTION_CANCEL})
                 else:
                     LOGGER.error("Auction {} not exists".format(
                         self.auction_doc_id
                     ), extra={
-                        "JOURNAL_REQUEST_ID": self.request_id,
+                        "JOURNAL_REQUEST_ID": request_id,
                         "MESSAGE_ID": AUCTION_WORKER_API_AUCTION_NOT_EXIST
                     })
                     self._end_auction_event.set()
                     sys.exit(1)
 
     def _set_start_date(self):
-        self.startDate = self.convert_datetime(
+        self.startDate = convert_datetime(
             self._auction_data['data'].get('auctionPeriod', {}).get('startDate', '')
         )
         self.deadline_time = datetime(

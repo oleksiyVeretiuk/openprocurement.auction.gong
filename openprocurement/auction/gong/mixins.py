@@ -154,7 +154,7 @@ class BiddersServiceMixin(object):
         with utils.update_auction_document(self):
             # Creating new stages
             pause, main_round = self.prepare_auction_stages(
-                self.convert_datetime(bid['time']),
+                utils.convert_datetime(bid['time']),
                 self.auction_document
             )
             self.auction_document['stages'].append(pause)
@@ -174,7 +174,7 @@ class BiddersServiceMixin(object):
         deadline = set_specific_hour(datetime.now(TIMEZONE), DEADLINE_HOUR)
 
         if main_round:
-            round_start_date = self.convert_datetime(main_round['start'])
+            round_start_date = utils.convert_datetime(main_round['start'])
             round_end_date = get_round_ending_time(
                 round_start_date, ROUND_DURATION, deadline
             )

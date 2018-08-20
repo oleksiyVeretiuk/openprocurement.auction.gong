@@ -1,6 +1,9 @@
 # -*- coding: utf-8 -*-
 from contextlib import contextmanager
 from datetime import datetime, time, timedelta
+import iso8601
+
+from openprocurement.auction.worker_core.constants import TIMEZONE
 
 
 def prepare_results_stage(bidder_id="", bidder_name="", amount="", time=""):
@@ -84,3 +87,7 @@ def lock_bids(auction):
 
 def prepare_audit():
     pass
+
+
+def convert_datetime(self, datetime_stamp):
+    return iso8601.parse_date(datetime_stamp).astimezone(TIMEZONE)
