@@ -93,7 +93,7 @@ class DBServiceMixin(object):
 
     def save_auction_document(self):
         self.generate_request_id()
-        public_document = self.prepare_public_document()
+        public_document = deepcopy(dict(self.auction_document))
         retries = self.db_request_retries
         while retries:
             try:
@@ -120,10 +120,6 @@ class DBServiceMixin(object):
             saved_auction_document = self.get_auction_document(force=True)
             public_document["_rev"] = saved_auction_document["_rev"]
             retries -= 1
-
-    def prepare_public_document(self):
-        public_document = deepcopy(dict(self.auction_document))
-        return public_document
 
 
 class BiddersServiceMixin(object):
