@@ -34,10 +34,7 @@ from openprocurement.auction.gong.mixins import\
     DBServiceMixin,\
     BiddersServiceMixin, AuctionAPIServiceMixin,\
     StagesServiceMixin
-from openprocurement.auction.worker_core.mixins import (
-    RequestIDServiceMixin,
-    DateTimeServiceMixin
-)
+
 from openprocurement.auction.gong.utils import (
     get_result_info,
     set_result_info,
@@ -65,9 +62,7 @@ SCHEDULER.timezone = TIMEZONE
 
 
 class Auction(DBServiceMixin,
-              RequestIDServiceMixin,
               BiddersServiceMixin,
-              DateTimeServiceMixin,
               StagesServiceMixin,
               AuctionAPIServiceMixin):
     """Auction Worker Class"""
