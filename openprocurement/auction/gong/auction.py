@@ -62,13 +62,11 @@ class Auction(DBServiceMixin,
               ):
     """Auction Worker Class"""
 
-    def __init__(self, tender_id,
-                 worker_defaults={},
-                 auction_data={},
-                 ):
+    def __init__(self, tender_id, worker_defaults={}, debug=False):
         super(Auction, self).__init__()
         self.tender_id = tender_id
         self.auction_doc_id = tender_id
+        self.debug = debug
         self._end_auction_event = Event()
         self.bids_actions = BoundedSemaphore()
         self.worker_defaults = worker_defaults
