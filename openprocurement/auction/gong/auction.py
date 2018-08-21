@@ -52,13 +52,9 @@ from openprocurement.auction.gong.constants import (
     DEADLINE_HOUR,
     ROUND_DURATION
 )
-
+from openprocurement.auction.gong.scheduler import SCHEDULER
 
 LOGGER = logging.getLogger('Auction Worker')
-SCHEDULER = GeventScheduler(job_defaults={"misfire_grace_time": 100},
-                            executors={'default': AuctionsExecutor()},
-                            logger=LOGGER)
-SCHEDULER.timezone = TIMEZONE
 
 
 class Auction(DBServiceMixin,

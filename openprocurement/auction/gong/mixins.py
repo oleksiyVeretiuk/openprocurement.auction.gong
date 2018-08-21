@@ -5,7 +5,7 @@ from collections import defaultdict as dd
 from copy import deepcopy
 from couchdb.http import HTTPError, RETRYABLE_ERRORS
 from datetime import timedelta, datetime
-from openprocurement.auction.gong.auction import SCHEDULER
+from openprocurement.auction.gong.scheduler import SCHEDULER
 
 from openprocurement.auction.utils import (
     get_tender_data,
