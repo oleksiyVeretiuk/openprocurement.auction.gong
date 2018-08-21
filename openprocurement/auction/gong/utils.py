@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
+import iso8601
+
 from contextlib import contextmanager
 from datetime import datetime, time, timedelta
-import iso8601
 
 from openprocurement.auction.worker_core.constants import TIMEZONE
 
