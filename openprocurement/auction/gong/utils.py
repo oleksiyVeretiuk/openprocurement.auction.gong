@@ -89,5 +89,5 @@ def prepare_audit():
     pass
 
 
-def convert_datetime(self, datetime_stamp):
+def convert_datetime(datetime_stamp):
     return iso8601.parse_date(datetime_stamp).astimezone(TIMEZONE)
