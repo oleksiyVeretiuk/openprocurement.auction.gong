@@ -32,7 +32,7 @@ from openprocurement.auction.utils import (
 from openprocurement.auction.worker_core.constants import TIMEZONE
 from openprocurement.auction.gong.mixins import\
     DBServiceMixin,\
-    BiddersServiceMixin, AuctionAPIServiceMixin,\
+    BiddersServiceMixin,\
     StagesServiceMixin
 
 from openprocurement.auction.gong.utils import (
@@ -60,7 +60,7 @@ LOGGER = logging.getLogger('Auction Worker')
 class Auction(DBServiceMixin,
               BiddersServiceMixin,
               StagesServiceMixin,
-              AuctionAPIServiceMixin):
+              ):
     """Auction Worker Class"""
 
     def __init__(self, tender_id,
