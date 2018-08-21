@@ -47,7 +47,7 @@ def prepare_bid_stage(exist_stage_params, params={},  current_auction_value=0):
     return stage
 
 
-def get_result_info(results):
+def get_active_bids(results):
 
     bids_information = dict([
         (bid["id"], bid.get("tenderers"))
@@ -58,7 +58,7 @@ def get_result_info(results):
     return bids_information
 
 
-def set_result_info(auction_document, bids_information):
+def open_bidders_name(auction_document, bids_information):
     for field in ['results', 'stages']:
         for index, stage in enumerate(auction_document[field]):
             if 'bidder_id' in stage and stage['bidder_id'] in bids_information:

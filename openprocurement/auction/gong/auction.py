@@ -36,8 +36,8 @@ from openprocurement.auction.gong.mixins import\
     StagesServiceMixin
 
 from openprocurement.auction.gong.utils import (
-    get_result_info,
-    set_result_info,
+    get_active_bids,
+    open_bidders_name,
     update_auction_document,
     prepare_audit,
     lock_bids,
@@ -261,8 +261,8 @@ class Auction(DBServiceMixin,
 
         auction = self.get_auction_data()
 
-        bids_information = get_result_info(auction)
-        set_result_info(self.auction_document, bids_information)
+        bids_information = get_active_bids(auction)
+        open_bidders_name(self.auction_document, bids_information)
 
         self.save_auction_document()
 
