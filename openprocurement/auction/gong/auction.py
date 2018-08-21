@@ -2,13 +2,12 @@ import logging
 import sys
 from copy import deepcopy
 from datetime import datetime, timedelta
-from urlparse import urljoin
 
+from zope.component.globalregistry import getGlobalSiteManager
 from apscheduler.schedulers.gevent import GeventScheduler
 from couchdb import Database, Session
 from gevent.event import Event
 from gevent.lock import BoundedSemaphore
-from requests import Session as RequestsSession
 from yaml import safe_dump as yaml_dump
 
 from openprocurement.auction.gong.journal import (
@@ -25,7 +24,6 @@ from openprocurement.auction.gong.journal import (
 )
 from openprocurement.auction.executor import AuctionsExecutor
 from openprocurement.auction.utils import (
-    get_tender_data,
     delete_mapping,
     generate_request_id
 )
@@ -34,6 +32,7 @@ from openprocurement.auction.gong.mixins import\
     DBServiceMixin,\
     BiddersServiceMixin,\
     StagesServiceMixin
+from openprocurement.auction.gong.datasource import prepare_datasource, IDataSource
 
 from openprocurement.auction.gong.utils import (
     get_active_bids,
@@ -70,26 +69,9 @@ class Auction(DBServiceMixin,
         super(Auction, self).__init__()
         self.tender_id = tender_id
         self.auction_doc_id = tender_id
-        self.tender_url = urljoin(
-            worker_defaults["resource_api_server"],
-            '/api/{0}/{1}/{2}'.format(
-                worker_defaults["resource_api_version"],
-                worker_defaults["resource_name"],
-                tender_id
-            )
-        )
-        if auction_data:
-            self.debug = True
-            LOGGER.setLevel(logging.DEBUG)
-            self._auction_data = auction_data
-        else:
-            self.debug = False
         self._end_auction_event = Event()
         self.bids_actions = BoundedSemaphore()
-        self.session = RequestsSession()
         self.worker_defaults = worker_defaults
-        if self.worker_defaults.get('with_document_service', False):
-            self.session_ds = RequestsSession()
         self.db = Database(str(self.worker_defaults["COUCH_DATABASE"]),
                            session=Session(retry_delays=range(10)))
         self.audit = {}
@@ -97,7 +79,12 @@ class Auction(DBServiceMixin,
         self.bidders_count = 0
         self.bidders_data = []
         self.mapping = {}
-        self.use_api = False
+
+        gsm = getGlobalSiteManager()
+        datasource_config = worker_defaults.get('datasource', {})
+        datasource_config.update(auction_id=self.auction_doc_id)
+        self.datasource = prepare_datasource(datasource_config)
+        gsm.registerUtility(self.datasource, IDataSource)
 
     def add_ending_main_round_job(self, start):
         # Add job that should end auction
@@ -222,7 +209,10 @@ class Auction(DBServiceMixin,
         LOGGER.info(self.audit)
 
         self.auction_document['endDate'] = auction_end.isoformat()
-        if self.put_auction_data(self._auction_data, self.auction_document):
+        result = self.datasource.update_source_object(self._auction_data, self.auction_document, self.audit)
+        if result:
+            if isinstance(result, dict):
+                self.auction_document = result
             self.save_auction_document()
 
         self._end_auction_event.set()
@@ -254,12 +244,9 @@ class Auction(DBServiceMixin,
         pass
 
     def post_announce(self):
-        if not self.use_api:
-            return
-
         self.auction_document = self.get_auction_document()
 
-        auction = self.get_auction_data()
+        auction = self.datasource.get_data(with_credentials=True)
 
         bids_information = get_active_bids(auction)
         open_bidders_name(self.auction_document, bids_information)
@@ -329,8 +316,7 @@ class Auction(DBServiceMixin,
             )
 
     def synchronize_auction_info(self, prepare=False):
-        if self.use_api:
-            self._set_auction_data(prepare)
+        self._set_auction_data(prepare)
 
         self._set_start_date()
         self._set_bidders_data()
@@ -339,47 +325,37 @@ class Auction(DBServiceMixin,
     def _set_auction_data(self, prepare=False):
         # Get auction from api and set it to _auction_data
         request_id = generate_request_id()
-        if not self.debug:
-            if prepare:
-                self._auction_data = get_tender_data(
-                    self.tender_url,
-                    request_id=request_id,
-                    session=self.session
-                )
-            else:
-                self._auction_data = {'data': {}}
+        if prepare:
+            self._auction_data = self.datasource.get_data()
+        else:
+            self._auction_data = {'data': {}}
 
-            auction_data = get_tender_data(
-                self.tender_url + '/auction',
-                user=self.worker_defaults["resource_api_token"],
-                request_id=request_id,
-                session=self.session
+        auction_data = self.datasource.get_data(public=False)
+
+        if auction_data:
+            self._auction_data['data'].update(auction_data['data'])
+            self.startDate = convert_datetime(
+                self._auction_data['data']['auctionPeriod']['startDate']
             )
-
-            if auction_data:
-                self._auction_data['data'].update(auction_data['data'])
-                self.startDate = convert_datetime(
-                    self._auction_data['data']['auctionPeriod']['startDate']
-                )
-                del auction_data
+            del auction_data
+        else:
+            self.get_auction_document()
+            if self.auction_document:
+                self.auction_document["current_stage"] = -100
+                self.save_auction_document()
+                LOGGER.warning("Cancel auction: {}".format(
+                    self.auction_doc_id
+                ), extra={"JOURNAL_REQUEST_ID": request_id,
+                          "MESSAGE_ID": AUCTION_WORKER_API_AUCTION_CANCEL})
             else:
-                self.get_auction_document()
-                if self.auction_document:
-                    self.auction_document["current_stage"] = -100
-                    self.save_auction_document()
-                    LOGGER.warning("Cancel auction: {}".format(
-                        self.auction_doc_id
-                    ), extra={"JOURNAL_REQUEST_ID": request_id,
-                              "MESSAGE_ID": AUCTION_WORKER_API_AUCTION_CANCEL})
-                else:
-                    LOGGER.error("Auction {} not exists".format(
-                        self.auction_doc_id
-                    ), extra={
-                        "JOURNAL_REQUEST_ID": request_id,
-                        "MESSAGE_ID": AUCTION_WORKER_API_AUCTION_NOT_EXIST
-                    })
-                    self._end_auction_event.set()
-                    sys.exit(1)
+                LOGGER.error("Auction {} not exists".format(
+                    self.auction_doc_id
+                ), extra={
+                    "JOURNAL_REQUEST_ID": request_id,
+                    "MESSAGE_ID": AUCTION_WORKER_API_AUCTION_NOT_EXIST
+                })
+                self._end_auction_event.set()
+                sys.exit(1)
 
     def _set_start_date(self):
         self.startDate = convert_datetime(
