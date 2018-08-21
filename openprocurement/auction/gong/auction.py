@@ -22,7 +22,6 @@ from openprocurement.auction.gong.journal import (
     AUCTION_WORKER_API_AUCTION_NOT_EXIST,
     AUCTION_WORKER_SERVICE_START_NEXT_STAGE
 )
-from openprocurement.auction.executor import AuctionsExecutor
 from openprocurement.auction.utils import (
     delete_mapping,
     generate_request_id
@@ -32,7 +31,7 @@ from openprocurement.auction.gong.mixins import\
     DBServiceMixin,\
     BiddersServiceMixin,\
     StagesServiceMixin
-from openprocurement.auction.gong.datasource import prepare_datasource, IDataSource
+from openprocurement.auction.gong.datasource import IDataSource
 
 from openprocurement.auction.gong.utils import (
     get_active_bids,
@@ -79,10 +78,8 @@ class Auction(DBServiceMixin,
         self.mapping = {}
 
         gsm = getGlobalSiteManager()
-        datasource_config = worker_defaults.get('datasource', {})
-        datasource_config.update(auction_id=self.auction_doc_id)
-        self.datasource = prepare_datasource(datasource_config)
-        gsm.registerUtility(self.datasource, IDataSource)
+
+        self.datasource = gsm.queryUtility(IDataSource)
 
     def add_ending_main_round_job(self, start):
         # Add job that should end auction

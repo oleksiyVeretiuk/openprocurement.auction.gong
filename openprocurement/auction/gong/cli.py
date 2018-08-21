@@ -9,8 +9,23 @@ import yaml
 import sys
 import os
 
+from zope.component.globalregistry import getGlobalSiteManager
+
+from openprocurement.auction.gong.datasource import prepare_datasource, IDataSource
+
+
 from openprocurement.auction.gong.auction import Auction, SCHEDULER
 from openprocurement.auction.worker_core import constants as C
+
+
+def register_utilities(worker_config, auction_id):
+    gsm = getGlobalSiteManager()
+
+    # Register datasource
+    datasource_config = worker_config.get('datasource', {})
+    datasource_config.update(auction_id=auction_id)
+    datasource = prepare_datasource(datasource_config)
+    gsm.registerUtility(datasource, IDataSource)
 
 
 def main():
@@ -43,6 +58,7 @@ def main():
         print "Auction worker defaults config not exists!!!"
         sys.exit(1)
 
+    register_utilities(worker_defaults, args.auction_doc_id)
     auction = Auction(args.auction_doc_id, worker_defaults=worker_defaults, debug=args.debug)
     if args.cmd == 'run':
         SCHEDULER.start()
