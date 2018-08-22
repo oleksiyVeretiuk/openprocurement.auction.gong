@@ -9,8 +9,23 @@ import yaml
 import sys
 import os
 
+from zope.component.globalregistry import getGlobalSiteManager
+
+from openprocurement.auction.gong.datasource import prepare_datasource, IDataSource
+
+
 from openprocurement.auction.gong.auction import Auction, SCHEDULER
 from openprocurement.auction.worker_core import constants as C
+
+
+def register_utilities(worker_config, auction_id):
+    gsm = getGlobalSiteManager()
+
+    # Register datasource
+    datasource_config = worker_config.get('datasource', {})
+    datasource_config.update(auction_id=auction_id)
+    datasource = prepare_datasource(datasource_config)
+    gsm.registerUtility(datasource, IDataSource)
 
 
 def main():
@@ -19,11 +34,12 @@ def main():
     parser.add_argument('auction_doc_id', type=str, help='auction_doc_id')
     parser.add_argument('auction_worker_config', type=str,
                         help='Auction Worker Configuration File')
-    parser.add_argument('--auction_info', type=str, help='Auction File')
-    parser.add_argument('--auction_info_from_db', type=str, help='Get auction data from local database')
     parser.add_argument('--with_api_version', type=str, help='Tender Api Version')
     parser.add_argument('--planning_procerude', type=str, help='Override planning procerude',
                         default=None, choices=[None, C.PLANNING_FULL, C.PLANNING_PARTIAL_DB, C.PLANNING_PARTIAL_CRON])
+    parser.add_argument('-debug', dest='debug', action='store_const',
+                        const=True, default=False,
+                        help='Debug mode for auction')
 
     args = parser.parse_args()
 
@@ -42,17 +58,8 @@ def main():
         print "Auction worker defaults config not exists!!!"
         sys.exit(1)
 
-    if args.auction_info_from_db:
-        auction_data = {'mode': 'test'}
-    elif args.auction_info:
-        auction_data = json.load(open(args.auction_info))
-    else:
-        auction_data = None
-
-    auction = Auction(args.auction_doc_id,
-                      worker_defaults=worker_defaults,
-                      auction_data=auction_data,
-                      )
+    register_utilities(worker_defaults, args.auction_doc_id)
+    auction = Auction(args.auction_doc_id, worker_defaults=worker_defaults, debug=args.debug)
     if args.cmd == 'run':
         SCHEDULER.start()
         auction.schedule_auction()

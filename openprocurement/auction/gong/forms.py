@@ -1,97 +1,82 @@
-# from da
-from flask import request, session, current_app as app
-
-from wtforms import Form, FloatField, StringField
-from wtforms.validators import InputRequired, ValidationError, StopValidation
-from fractions import Fraction
+# -*- coding: utf-8 -*-
 from datetime import datetime
-from pytz import timezone
+
 import wtforms_json
+from flask import request, session, current_app as app
+from wtforms import Form, FloatField, StringField
+from wtforms.validators import InputRequired, ValidationError
 
 from openprocurement.auction.utils import prepare_extra_journal_fields
+from openprocurement.auction.worker_core.constants import TIMEZONE
+
+from openprocurement.auction.gong.constants import MAIN_ROUND
+from openprocurement.auction.gong.utils import lock_bids
+
 
 wtforms_json.init()
 
 
 def validate_bid_value(form, field):
     """
-    Bid must be greater then 0
+    Bid must be higher or equal to previous bidder bid amount plus minimalStep
+    amount. Bid amount should also be multiple of minimalStep amount.
     """
-    if field.data <= 0.0 and field.data != -1:
+    stage_id = form.document['current_stage']
+    minimal_step = form.document['minimalStep']['amount']
+    current_amount = form.document['stages'][stage_id].get('amount')
+    if form.document['stages'][stage_id]['type'] != MAIN_ROUND:
+        raise ValidationError(u'Current stage does not allow bidding')
+    if field.data < (current_amount + minimal_step):
         raise ValidationError(u'Too low value')
-
-
-def validate_bid_change_on_bidding(form, field):
-    """
-    Bid must be lower then previous bidder bid amount minus minimalStep amount
-    """
-    stage_id = form.document['current_stage']
-    if form.auction.features:
-        prev_bid = form.document['stages'][stage_id]['amount_features']
-        minimal = Fraction(prev_bid) / form.auction.bidders_coeficient[form.data['bidder_id']]
-        minimal += Fraction(form.document['minimalStep']['amount'])
-        if (field.data < minimal) and (field.data != -1):
-            raise ValidationError(u'Too low value')
-    else:
-        minimal_bid = form.document['stages'][stage_id]['amount']
-        if (field.data < (minimal_bid + form.document['minimalStep']['amount'])) and (field.data != -1):
-            raise ValidationError(u'Too low value')
-
-
-def validate_bidder_id_on_bidding(form, field):
-    stage_id = form.document['current_stage']
-    if field.data != form.document['stages'][stage_id]['bidder_id']:
-        raise StopValidation(u'Not valid bidder')
+    if field.data % minimal_step:
+        raise ValidationError(
+            u'Value should be a multiplier of ' 
+            u'a minimalStep amount ({})'.format(minimal_step)
+        )
 
 
 class BidsForm(Form):
-    bidder_id = StringField('bidder_id',
-                            [InputRequired(message=u'No bidder id'), ])
-
-    bid = FloatField('bid', [InputRequired(message=u'Bid amount is required'),
-                             validate_bid_value])
-
-    def validate_bid(self, field):
-        stage_id = self.document['current_stage']
-        if self.document['stages'][stage_id]['type'] == 'bids':
-            validate_bid_change_on_bidding(self, field)
-        else:
-            raise ValidationError(u'Stage not for bidding')
-
-    def validate_bidder_id(self, field):
-        stage_id = self.document['current_stage']
-        if self.document['stages'][stage_id]['type'] == 'bids':
-            validate_bidder_id_on_bidding(self, field)
+    bidder_id = StringField(
+        'bidder_id',
+        validators=[
+            InputRequired(message=u'No bidder id'),
+        ]
+    )
+    bid = FloatField(
+        'bid',
+        validators=[
+            InputRequired(message=u'Bid amount is required'),
+            validate_bid_value
+        ]
+    )
 
 
 def form_handler():
     auction = app.config['auction']
-    with auction.bids_actions:
-        form = app.bids_form.from_json(request.json)
-        form.auction = auction
-        form.document = auction.db.get(auction.auction_doc_id)
-        current_time = datetime.now(timezone('Europe/Kiev'))
-        if form.validate():
-            # write data
+    form = app.bids_form.from_json(request.json)
+    form.auction = auction
+    form.document = auction.db.get(auction.auction_doc_id)
+    current_time = datetime.now(TIMEZONE)
+    if form.validate():
+        with lock_bids(auction):
             auction.add_bid(form.document['current_stage'],
                             {'amount': form.data['bid'],
                              'bidder_id': form.data['bidder_id'],
                              'time': current_time.isoformat()})
-            if form.data['bid'] == -1.0:
-                app.logger.info("Bidder {} with client_id {} canceled bids in stage {} in {}".format(
-                    form.data['bidder_id'], session['client_id'],
-                    form.document['current_stage'], current_time.isoformat()
-                ), extra=prepare_extra_journal_fields(request.headers))
-            else:
-                app.logger.info("Bidder {} with client_id {} placed bid {} in {}".format(
+            app.logger.info(
+                "Bidder {} with client_id {} placed bid {} in {}".format(
                     form.data['bidder_id'], session['client_id'],
                     form.data['bid'], current_time.isoformat()
-                ), extra=prepare_extra_journal_fields(request.headers))
+                ), extra=prepare_extra_journal_fields(request.headers)
+            )
             return {'status': 'ok', 'data': form.data}
-        else:
-            app.logger.info("Bidder {} with client_id {} wants place bid {} in {} with errors {}".format(
+    else:
+        app.logger.info(
+            "Bidder {} with client_id {} wants place "
+            "bid {} in {} with errors {}".format(
                 request.json.get('bidder_id', 'None'), session['client_id'],
                 request.json.get('bid', 'None'), current_time.isoformat(),
                 repr(form.errors)
-            ), extra=prepare_extra_journal_fields(request.headers))
-            return {'status': 'failed', 'errors': form.errors}
+            ), extra=prepare_extra_journal_fields(request.headers)
+        )
+        return {'status': 'failed', 'errors': form.errors}

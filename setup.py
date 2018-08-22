@@ -7,6 +7,7 @@ INSTALL_REQUIRES = [
     'setuptools',
     'openprocurement.auction',
     'WTForms',
+    'zope.component',
     'WTForms-JSON',
 ]
 EXTRAS_REQUIRE = {
