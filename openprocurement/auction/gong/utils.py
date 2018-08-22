@@ -2,6 +2,7 @@
 import iso8601
 
 from contextlib import contextmanager
+from copy import deepcopy
 from datetime import datetime, time, timedelta
 
 from openprocurement.auction.worker_core.constants import TIMEZONE
@@ -60,6 +61,7 @@ def get_active_bids(results):
 
 
 def open_bidders_name(auction_document, bids_information):
+    auction_document = deepcopy(auction_document)
     for field in ['results', 'stages']:
         for index, stage in enumerate(auction_document[field]):
             if 'bidder_id' in stage and stage['bidder_id'] in bids_information:
@@ -70,6 +72,7 @@ def open_bidders_name(auction_document, bids_information):
                         'ru': bids_information[stage['bidder_id']][0]["name"],
                     }
                 })
+    return auction_document
 
 
 @contextmanager

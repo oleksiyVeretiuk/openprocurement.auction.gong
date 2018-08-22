@@ -244,7 +244,7 @@ class Auction(DBServiceMixin,
         auction = self.datasource.get_data(with_credentials=True)
 
         bids_information = get_active_bids(auction)
-        open_bidders_name(self.auction_document, bids_information)
+        self.auction_document = open_bidders_name(self.auction_document, bids_information)
 
         self.save_auction_document()
 

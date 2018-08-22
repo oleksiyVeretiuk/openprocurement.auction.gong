@@ -165,8 +165,7 @@ class OpenProcurementAPIDataSource(object):
 
         if results:
             bids_information = get_active_bids(results)
-            new_db_document = deepcopy(db_document)
-            open_bidders_name(db_document, bids_information)
+            new_db_document = open_bidders_name(db_document, bids_information)
 
             if doc_id and bids_information:
                 self.upload_auction_history_document(history_data, doc_id)
