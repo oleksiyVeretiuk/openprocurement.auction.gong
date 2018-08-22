@@ -120,12 +120,15 @@ class OpenProcurementAPIDataSource(object):
                 config['auction_id']
             )
         )
-
         self.api_token = config["resource_api_token"]
+        self.source_id = config['auction_id']
 
-        self.with_document_service = self.worker_defaults.get('with_document_service', False)
+        self.with_document_service = config.get('with_document_service', False)
         self.session = RequestsSession()
-        if self.worker_defaults.get('with_document_service', False):
+        if config.get('with_document_service', False):
+            self.ds_credential['username'] = config['DOCUMENT_SERVICE']['username']
+            self.ds_credential['password'] = config['DOCUMENT_SERVICE']['password']
+            self.document_service_url = config['DOCUMENT_SERVICE']['url']
             self.session_ds = RequestsSession()
 
     def get_data(self, public=True, with_credentials=False):
@@ -168,6 +171,7 @@ class OpenProcurementAPIDataSource(object):
             new_db_document = open_bidders_name(db_document, bids_information)
 
             if doc_id and bids_information:
+                # TODO: open bidders names in auction protocol
                 self.upload_auction_history_document(history_data, doc_id)
                 return new_db_document
         else:
