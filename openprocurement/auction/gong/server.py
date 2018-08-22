@@ -18,6 +18,7 @@ from openprocurement.auction.worker_core.server import (
 )
 
 from openprocurement.auction.gong import views
+from openprocurement.auction.gong.constants import AUCTION_SUBPATH
 from openprocurement.auction.gong.forms import BidsForm, form_handler
 
 
@@ -40,7 +41,7 @@ def add_url_rules(app):
 
 
 def run_server(auction, mapping_expire_time, logger, timezone='Europe/Kiev',
-               bids_form=BidsForm, form_handler=form_handler, cookie_path='auctions'):
+               bids_form=BidsForm, form_handler=form_handler, cookie_path=AUCTION_SUBPATH):
     app = initialize_application()
     add_url_rules(app)
     app.config.update(auction.worker_defaults)
