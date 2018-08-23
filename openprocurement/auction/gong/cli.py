@@ -6,8 +6,9 @@ import argparse
 import logging.config
 import os
 import sys
-import yaml
 
+import yaml
+from gevent.lock import BoundedSemaphore
 from zope.component.globalregistry import getGlobalSiteManager
 
 from openprocurement.auction.worker_core import constants as C
@@ -36,6 +37,9 @@ def register_utilities(worker_config, auction_id):
     context_config = worker_config.get('context', {})
     context = prepare_context(context_config)
     context['auction_doc_id'] = auction_id
+    # Initializing semaphore which is used for locking WSGI server actions
+    # during applying bids or updating auction document
+    context['server_actions'] = BoundedSemaphore()
     gsm.registerUtility(context, IContext)
 
 

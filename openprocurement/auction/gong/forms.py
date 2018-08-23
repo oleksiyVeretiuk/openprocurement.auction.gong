@@ -12,7 +12,7 @@ from openprocurement.auction.worker_core.constants import TIMEZONE
 
 from openprocurement.auction.gong.constants import MAIN_ROUND
 from openprocurement.auction.gong.context import IContext
-from openprocurement.auction.gong.utils import lock_bids
+from openprocurement.auction.gong.utils import lock_server
 
 
 wtforms_json.init()
@@ -54,13 +54,12 @@ class BidsForm(Form):
 
 
 def form_handler():
-    auction = app.config['auction']
     context = app.gsm.queryUtility(IContext)
     form = app.bids_form.from_json(request.json)
     form.document = deepcopy(context['auction_document'])
     current_time = datetime.now(TIMEZONE)
     if form.validate():
-        with lock_bids(auction):
+        with lock_server(context['server_actions']):
             app.bids_handler.add_bid(form.document['current_stage'],
                                      {'amount': form.data['bid'],
                                       'bidder_id': form.data['bidder_id'],

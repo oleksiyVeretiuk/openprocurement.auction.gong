@@ -4,7 +4,6 @@ import os
 from flask import Flask, session
 from flask_oauthlib.client import OAuth
 from gevent import spawn
-from gevent.lock import BoundedSemaphore
 from gevent.pywsgi import WSGIServer
 from pytz import timezone as tz
 from zope.component import getGlobalSiteManager
@@ -51,13 +50,11 @@ def run_server(auction, mapping_expire_time, logger, timezone='Europe/Kiev', bid
     # Replace Flask custom logger
     app.logger_name = logger.name
     app._logger = logger
-    app.config['auction'] = auction
     app.config['timezone'] = tz(timezone)
     app.config['SESSION_COOKIE_PATH'] = '/{}/{}'.format(cookie_path, auction.auction_doc_id)
     app.config['SESSION_COOKIE_NAME'] = 'auction_session'
     app.oauth = OAuth(app)
     app.gsm = getGlobalSiteManager()
-    app.bids_actions = BoundedSemaphore()
     app.bids_form = bids_form
     app.bids_handler = bids_handler()
     app.form_handler = form_handler

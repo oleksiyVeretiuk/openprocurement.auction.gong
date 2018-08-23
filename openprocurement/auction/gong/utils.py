@@ -114,10 +114,10 @@ def update_auction_document(context, database):
 
 
 @contextmanager
-def lock_bids(auction):
-    auction.bids_actions.acquire()
+def lock_server(semaphore):
+    semaphore.acquire()
     yield
-    auction.bids_actions.release()
+    semaphore.release()
 
 
 def prepare_audit():

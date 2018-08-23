@@ -91,7 +91,7 @@ class Auction(object):
     def switch_to_next_stage(self):
         request_id = generate_request_id()
 
-        with utils.lock_bids(self):
+        with utils.lock_server(self.context['server_actions']):
             with utils.update_auction_document(self.context, self.database) as auction_document:
                 auction_document["current_stage"] += 1
 
@@ -156,7 +156,7 @@ class Auction(object):
                    "MESSAGE_ID": AUCTION_WORKER_SERVICE_END_FIRST_PAUSE}
         )
         self.synchronize_auction_info()
-        with utils.lock_bids(self), utils.update_auction_document(self.context, self.database) as auction_document:
+        with utils.lock_server(self.context['server_actions']), utils.update_auction_document(self.context, self.database) as auction_document:
             auction_document["current_stage"] = 0
             auction_document['current_phase'] = PRESTARTED
             LOGGER.info("Switched current stage to {}".format(
