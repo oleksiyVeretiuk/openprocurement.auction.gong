@@ -4,8 +4,10 @@ import os
 from flask import Flask, session
 from flask_oauthlib.client import OAuth
 from gevent import spawn
+from gevent.lock import BoundedSemaphore
 from gevent.pywsgi import WSGIServer
 from pytz import timezone as tz
+from zope.component import getGlobalSiteManager
 
 
 from openprocurement.auction.helpers.system import get_lisener
@@ -18,6 +20,7 @@ from openprocurement.auction.worker_core.server import (
 )
 
 from openprocurement.auction.gong import views
+from openprocurement.auction.gong.bids import BidsHandler
 from openprocurement.auction.gong.constants import AUCTION_SUBPATH
 from openprocurement.auction.gong.forms import BidsForm, form_handler
 
@@ -40,8 +43,8 @@ def add_url_rules(app):
     app.add_url_rule('/check_authorization', 'check_authorization', views.check_authorization, methods=['POST'])
 
 
-def run_server(auction, mapping_expire_time, logger, timezone='Europe/Kiev',
-               bids_form=BidsForm, form_handler=form_handler, cookie_path=AUCTION_SUBPATH):
+def run_server(auction, mapping_expire_time, logger, timezone='Europe/Kiev', bids_form=BidsForm,
+               bids_handler=BidsHandler, form_handler=form_handler, cookie_path=AUCTION_SUBPATH):
     app = initialize_application()
     add_url_rules(app)
     app.config.update(auction.worker_defaults)
@@ -53,7 +56,10 @@ def run_server(auction, mapping_expire_time, logger, timezone='Europe/Kiev',
     app.config['SESSION_COOKIE_PATH'] = '/{}/{}'.format(cookie_path, auction.auction_doc_id)
     app.config['SESSION_COOKIE_NAME'] = 'auction_session'
     app.oauth = OAuth(app)
+    app.gsm = getGlobalSiteManager()
+    app.bids_actions = BoundedSemaphore()
     app.bids_form = bids_form
+    app.bids_handler = bids_handler()
     app.form_handler = form_handler
     app.remote_oauth = app.oauth.remote_app(
         'remote',
@@ -71,18 +77,18 @@ def run_server(auction, mapping_expire_time, logger, timezone='Europe/Kiev',
     os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = 'true'
 
     # Start server on unused port
-    lisener = get_lisener(auction.worker_defaults["STARTS_PORT"],
+    listener = get_lisener(auction.worker_defaults["STARTS_PORT"],
                           host=auction.worker_defaults.get("WORKER_BIND_IP", ""))
     app.logger.info(
-        "Start server on {0}:{1}".format(*lisener.getsockname()),
+        "Start server on {0}:{1}".format(*listener.getsockname()),
         extra={"JOURNAL_REQUEST_ID": auction.request_id}
     )
-    server = WSGIServer(lisener, app,
+    server = WSGIServer(listener, app,
                         log=_LoggerStream(logger),
                         handler_class=AuctionsWSGIHandler)
     server.start()
     # Set mapping
-    mapping_value = "http://{0}:{1}/".format(*lisener.getsockname())
+    mapping_value = "http://{0}:{1}/".format(*listener.getsockname())
     create_mapping(auction.worker_defaults,
                    auction.auction_doc_id,
                    mapping_value)
