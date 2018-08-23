@@ -26,23 +26,8 @@ from openprocurement.auction.utils import (
     generate_request_id
 )
 from openprocurement.auction.worker_core.constants import TIMEZONE
-from openprocurement.auction.gong.mixins import\
-    DBServiceMixin,\
-    BiddersServiceMixin,\
-    StagesServiceMixin
-from openprocurement.auction.gong.context import IContext
-from openprocurement.auction.gong.datasource import IDataSource
-from openprocurement.auction.gong.database import IDatabase
 
-from openprocurement.auction.gong.utils import (
-    get_active_bids,
-    open_bidders_name,
-    update_auction_document,
-    prepare_audit,
-    lock_bids,
-    convert_datetime
-)
-from openprocurement.auction.gong.server import run_server
+from openprocurement.auction.gong import utils
 from openprocurement.auction.gong.constants import (
     MULTILINGUAL_FIELDS,
     ADDITIONAL_LANGUAGES,
@@ -51,15 +36,16 @@ from openprocurement.auction.gong.constants import (
     DEADLINE_HOUR,
     ROUND_DURATION
 )
+from openprocurement.auction.gong.context import IContext
+from openprocurement.auction.gong.datasource import IDataSource
+from openprocurement.auction.gong.database import IDatabase
+from openprocurement.auction.gong.server import run_server
 from openprocurement.auction.gong.scheduler import SCHEDULER
 
 LOGGER = logging.getLogger('Auction Worker')
 
 
-class Auction(DBServiceMixin,
-              BiddersServiceMixin,
-              StagesServiceMixin,
-              ):
+class Auction(object):
     """Auction Worker Class"""
 
     def __init__(self, tender_id, worker_defaults={}, debug=False):
@@ -105,8 +91,8 @@ class Auction(DBServiceMixin,
     def switch_to_next_stage(self):
         request_id = generate_request_id()
 
-        with lock_bids(self):
-            with update_auction_document(self.context, self.database) as auction_document:
+        with utils.lock_bids(self):
+            with utils.update_auction_document(self.context, self.database) as auction_document:
                 auction_document["current_stage"] += 1
 
         LOGGER.info('---------------- Start stage {0} ----------------'.format(
@@ -119,20 +105,20 @@ class Auction(DBServiceMixin,
         self.context['auction_document'] = self.database.get_auction_document(
             self.context['auction_doc_id']
         )
-        with update_auction_document(self.context, self.database) as auction_document:
+        with utils.update_auction_document(self.context, self.database) as auction_document:
             if self.debug:
                 LOGGER.info("Get _auction_data from auction_document")
                 self._auction_data = auction_document.get(
                     'test_auction_data', {}
                 )
             self.synchronize_auction_info()
-            self.audit = prepare_audit()
+            self.audit = utils.prepare_audit()
 
         # Add job that starts auction server
         SCHEDULER.add_job(
             self.start_auction,
             'date',
-            run_date=convert_datetime(
+            run_date=utils.convert_datetime(
                 self.context['auction_document']['stages'][0]['start']
             ),
             name="Start of Auction",
@@ -140,16 +126,16 @@ class Auction(DBServiceMixin,
         )
 
         # Add job that switch current_stage to round stage
-        start = convert_datetime(self.context['auction_document']['stages'][1]['start'])
+        start = utils.convert_datetime(self.context['auction_document']['stages'][1]['start'])
         self.add_pause_job(start)
 
         # Add job that end auction
-        start = convert_datetime(self.context['auction_document']['stages'][1]['start']) + timedelta(seconds=ROUND_DURATION)
+        start = utils.convert_datetime(self.context['auction_document']['stages'][1]['start']) + timedelta(seconds=ROUND_DURATION)
         self.add_ending_main_round_job(start)
 
         self.server = run_server(
             self,
-            # TODO: add mapping expire
+            None,  # TODO: add mapping expire
             LOGGER
         )
 
@@ -170,7 +156,7 @@ class Auction(DBServiceMixin,
                    "MESSAGE_ID": AUCTION_WORKER_SERVICE_END_FIRST_PAUSE}
         )
         self.synchronize_auction_info()
-        with lock_bids(self), update_auction_document(self.context, self.database) as auction_document:
+        with utils.lock_bids(self), utils.update_auction_document(self.context, self.database) as auction_document:
             auction_document["current_stage"] = 0
             auction_document['current_phase'] = PRESTARTED
             LOGGER.info("Switched current stage to {}".format(
@@ -197,7 +183,7 @@ class Auction(DBServiceMixin,
         )
 
         auction_end = datetime.now(TIMEZONE)
-        stage = self.prepare_end_stage(auction_end)
+        stage = utils.prepare_end_stage(auction_end)
         auction_document = deepcopy(self.context['auction_document'])
         auction_document["stages"].append(stage)
         auction_document["current_stage"] = len(self.context['auction_document']["stages"]) - 1
@@ -223,7 +209,7 @@ class Auction(DBServiceMixin,
             self.context['auction_doc_id']
         )
         if self.context['auction_document']:
-            with update_auction_document(self.context, self.database) as auction_document:
+            with utils.update_auction_document(self.context, self.database) as auction_document:
                 LOGGER.info("Auction {} canceled".format(self.context['auction_do_id']),
                             extra={'MESSAGE_ID': AUCTION_WORKER_SERVICE_AUCTION_CANCELED})
                 auction_document["current_stage"] = -100
@@ -239,7 +225,7 @@ class Auction(DBServiceMixin,
             self.context['auction_doc_id']
         )
         if self.context['auction_document']:
-            with update_auction_document(self.context, self.database) as auction_document:
+            with utils.update_auction_document(self.context, self.database) as auction_document:
                 LOGGER.info("Auction {} has not started and will be rescheduled".format(self.context['auction_do_id']),
                             extra={'MESSAGE_ID': AUCTION_WORKER_SERVICE_AUCTION_RESCHEDULE})
                 auction_document["current_stage"] = -101
@@ -257,9 +243,9 @@ class Auction(DBServiceMixin,
         )
         auction = self.datasource.get_data(with_credentials=True)
 
-        bids_information = get_active_bids(auction)
-        with update_auction_document(self.context, self.database) as auction_document:
-            open_bidders_name(auction_document, bids_information)
+        bids_information = utils.get_active_bids(auction)
+        with utils.update_auction_document(self.context, self.database) as auction_document:
+            utils.open_bidders_name(auction_document, bids_information)
 
     def prepare_auction_document(self):
         public_document = self.database.get_auction_document(self.context['auction_doc_id'])
@@ -278,13 +264,13 @@ class Auction(DBServiceMixin,
         self._prepare_auction_document_data(auction_document)
 
         if self.worker_defaults.get('sandbox_mode', False):
-            auction_document['stages'] = self.prepare_auction_stages(
+            auction_document['stages'] = utils.prepare_auction_stages(
                 self.startDate,
                 deepcopy(auction_document),
                 fast_forward=True
             )
         else:
-            auction_document['stages'] = self.prepare_auction_stages(
+            auction_document['stages'] = utils.prepare_auction_stages(
                 self.startDate,
                 deepcopy(auction_document)
             )
@@ -341,7 +327,7 @@ class Auction(DBServiceMixin,
 
         if auction_data:
             self._auction_data['data'].update(auction_data['data'])
-            self.startDate = convert_datetime(
+            self.startDate = utils.convert_datetime(
                 self._auction_data['data']['auctionPeriod']['startDate']
             )
             del auction_data
@@ -365,7 +351,7 @@ class Auction(DBServiceMixin,
                 sys.exit(1)
 
     def _set_start_date(self):
-        self.startDate = convert_datetime(
+        self.startDate = utils.convert_datetime(
             self._auction_data['data'].get('auctionPeriod', {}).get('startDate', '')
         )
         self.deadline_time = datetime(
