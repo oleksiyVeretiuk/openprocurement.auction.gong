@@ -4,18 +4,17 @@ monkey.patch_all()
 
 import argparse
 import logging.config
-import json
-import yaml
-import sys
 import os
+import sys
+import yaml
 
 from zope.component.globalregistry import getGlobalSiteManager
 
-from openprocurement.auction.gong.datasource import prepare_datasource, IDataSource
-
+from openprocurement.auction.worker_core import constants as C
 
 from openprocurement.auction.gong.auction import Auction, SCHEDULER
-from openprocurement.auction.worker_core import constants as C
+from openprocurement.auction.gong.database import prepare_database, IDatabase
+from openprocurement.auction.gong.datasource import prepare_datasource, IDataSource
 
 
 def register_utilities(worker_config, auction_id):
@@ -26,6 +25,11 @@ def register_utilities(worker_config, auction_id):
     datasource_config.update(auction_id=auction_id)
     datasource = prepare_datasource(datasource_config)
     gsm.registerUtility(datasource, IDataSource)
+
+    # Register database
+    database_config = worker_config.get('database', {})
+    database = prepare_database(database_config)
+    gsm.registerUtility(database, IDatabase)
 
 
 def main():
@@ -75,6 +79,7 @@ def main():
         auction.reschedule_auction()
     elif args.cmd == 'prepare_audit':
         auction.post_audit()
+
 
 if __name__ == "__main__":
     main()

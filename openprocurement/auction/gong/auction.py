@@ -32,6 +32,7 @@ from openprocurement.auction.gong.mixins import\
     BiddersServiceMixin,\
     StagesServiceMixin
 from openprocurement.auction.gong.datasource import IDataSource
+from openprocurement.auction.gong.database import IDatabase
 
 from openprocurement.auction.gong.utils import (
     get_active_bids,
@@ -64,7 +65,6 @@ class Auction(DBServiceMixin,
     def __init__(self, tender_id, worker_defaults={}, debug=False):
         super(Auction, self).__init__()
         self.tender_id = tender_id
-        self.auction_doc_id = tender_id
         self.debug = debug
         self._end_auction_event = Event()
         self.bids_actions = BoundedSemaphore()
@@ -80,6 +80,10 @@ class Auction(DBServiceMixin,
         gsm = getGlobalSiteManager()
 
         self.datasource = gsm.queryUtility(IDataSource)
+        self.database = gsm.queryUtility(IDatabase)
+        self.context = {
+            'auction_doc_id': tender_id,
+        }
 
     def add_ending_main_round_job(self, start):
         # Add job that should end auction
@@ -104,21 +108,23 @@ class Auction(DBServiceMixin,
         request_id = generate_request_id()
 
         with lock_bids(self):
-            self.get_auction_document()
-            self.auction_document["current_stage"] += 1
-            self.save_auction_document()
+            with update_auction_document(self.context, self.database) as auction_document:
+                auction_document["current_stage"] += 1
 
         LOGGER.info('---------------- Start stage {0} ----------------'.format(
-            self.auction_document["current_stage"]),
+            self.context['auction_document']["current_stage"]),
             extra={"JOURNAL_REQUEST_ID": request_id,
                    "MESSAGE_ID": AUCTION_WORKER_SERVICE_START_NEXT_STAGE}
         )
 
     def schedule_auction(self):
-        with update_auction_document(self):
+        self.context['auction_document'] = self.database.get_auction_document(
+            self.context['auction_doc_id']
+        )
+        with update_auction_document(self.context, self.database) as auction_document:
             if self.debug:
                 LOGGER.info("Get _auction_data from auction_document")
-                self._auction_data = self.auction_document.get(
+                self._auction_data = auction_document.get(
                     'test_auction_data', {}
                 )
             self.synchronize_auction_info()
@@ -129,22 +135,23 @@ class Auction(DBServiceMixin,
             self.start_auction,
             'date',
             run_date=convert_datetime(
-                self.auction_document['stages'][0]['start']
+                self.context['auction_document']['stages'][0]['start']
             ),
             name="Start of Auction",
             id="auction:start"
         )
 
         # Add job that switch current_stage to round stage
-        start = convert_datetime(self.auction_document['stages'][1]['start'])
+        start = convert_datetime(self.context['auction_document']['stages'][1]['start'])
         self.add_pause_job(start)
 
         # Add job that end auction
-        start = convert_datetime(self.auction_document['stages'][1]['start']) + timedelta(seconds=ROUND_DURATION)
+        start = convert_datetime(self.context['auction_document']['stages'][1]['start']) + timedelta(seconds=ROUND_DURATION)
         self.add_ending_main_round_job(start)
 
         self.server = run_server(
             self,
+            # TODO: add mapping expire
             LOGGER
         )
 
@@ -165,11 +172,11 @@ class Auction(DBServiceMixin,
                    "MESSAGE_ID": AUCTION_WORKER_SERVICE_END_FIRST_PAUSE}
         )
         self.synchronize_auction_info()
-        with lock_bids(self), update_auction_document(self):
-            self.auction_document["current_stage"] = 0
-            self.auction_document['current_phase'] = PRESTARTED
+        with lock_bids(self), update_auction_document(self.context, self.database) as auction_document:
+            auction_document["current_stage"] = 0
+            auction_document['current_phase'] = PRESTARTED
             LOGGER.info("Switched current stage to {}".format(
-                self.auction_document['current_stage']
+                auction_document['current_stage']
             ))
 
     def end_auction(self):
@@ -186,15 +193,16 @@ class Auction(DBServiceMixin,
         if self.server:
             self.server.stop()
 
-        delete_mapping(self.worker_defaults, self.auction_doc_id)
+        delete_mapping(self.worker_defaults, self.context['auction_do_id'])
         LOGGER.debug(
             "Clear mapping", extra={"JOURNAL_REQUEST_ID": request_id}
         )
 
         auction_end = datetime.now(TIMEZONE)
         stage = self.prepare_end_stage(auction_end)
-        self.auction_document["stages"].append(stage)
-        self.auction_document["current_stage"] = len(self.auction_document["stages"]) - 1
+        auction_document = deepcopy(self.context['auction_document'])
+        auction_document["stages"].append(stage)
+        auction_document["current_stage"] = len(self.context['auction_document']["stages"]) - 1
 
         # TODO: work with audit
         LOGGER.info(
@@ -203,84 +211,92 @@ class Auction(DBServiceMixin,
         )
         LOGGER.info(self.audit)
 
-        self.auction_document['endDate'] = auction_end.isoformat()
-        result = self.datasource.update_source_object(self._auction_data, self.auction_document, self.audit)
+        auction_document['endDate'] = auction_end.isoformat()
+        result = self.datasource.update_source_object(self._auction_data, auction_document, self.audit)
         if result:
             if isinstance(result, dict):
-                self.auction_document = result
-            self.save_auction_document()
+                self.context['auction_document'] = result
+            self.database.save_auction_document(self.context['auction_document'], self.context['auction_doc_id'])
 
         self._end_auction_event.set()
 
     def cancel_auction(self):
-        if self.get_auction_document():
-            LOGGER.info("Auction {} canceled".format(self.auction_doc_id),
-                        extra={'MESSAGE_ID': AUCTION_WORKER_SERVICE_AUCTION_CANCELED})
-            self.auction_document["current_stage"] = -100
-            self.auction_document["endDate"] = datetime.now(TIMEZONE).isoformat()
-            LOGGER.info("Change auction {} status to 'canceled'".format(self.auction_doc_id),
-                        extra={'MESSAGE_ID': AUCTION_WORKER_SERVICE_AUCTION_STATUS_CANCELED})
-            self.save_auction_document()
+        self.context['auction_document'] = self.database.get_auction_document(
+            self.context['auction_doc_id']
+        )
+        if self.context['auction_document']:
+            with update_auction_document(self.context, self.database) as auction_document:
+                LOGGER.info("Auction {} canceled".format(self.context['auction_do_id']),
+                            extra={'MESSAGE_ID': AUCTION_WORKER_SERVICE_AUCTION_CANCELED})
+                auction_document["current_stage"] = -100
+                auction_document["endDate"] = datetime.now(TIMEZONE).isoformat()
+                LOGGER.info("Change auction {} status to 'canceled'".format(self.context['auction_do_id']),
+                            extra={'MESSAGE_ID': AUCTION_WORKER_SERVICE_AUCTION_STATUS_CANCELED})
         else:
-            LOGGER.info("Auction {} not found".format(self.auction_doc_id),
+            LOGGER.info("Auction {} not found".format(self.context['auction_doc_id']),
                         extra={'MESSAGE_ID': AUCTION_WORKER_SERVICE_AUCTION_NOT_FOUND})
 
     def reschedule_auction(self):
-        if self.get_auction_document():
-            LOGGER.info("Auction {} has not started and will be rescheduled".format(self.auction_doc_id),
-                        extra={'MESSAGE_ID': AUCTION_WORKER_SERVICE_AUCTION_RESCHEDULE})
-            self.auction_document["current_stage"] = -101
-            self.save_auction_document()
+        self.context['auction_document'] = self.database.get_auction_document(
+            self.context['auction_doc_id']
+        )
+        if self.context['auction_document']:
+            with update_auction_document(self.context, self.database) as auction_document:
+                LOGGER.info("Auction {} has not started and will be rescheduled".format(self.context['auction_do_id']),
+                            extra={'MESSAGE_ID': AUCTION_WORKER_SERVICE_AUCTION_RESCHEDULE})
+                auction_document["current_stage"] = -101
+                self.database.save_auction_document(auction_document, self.context['auction_doc_id'])
         else:
-            LOGGER.info("Auction {} not found".format(self.auction_doc_id),
+            LOGGER.info("Auction {} not found".format(self.context['auction_do_id']),
                         extra={'MESSAGE_ID': AUCTION_WORKER_SERVICE_AUCTION_NOT_FOUND})
 
     def post_audit(self):
         pass
 
     def post_announce(self):
-        self.auction_document = self.get_auction_document()
-
+        self.context['auction_document'] = self.database.get_auction_document(
+            self.context['auction_doc_id']
+        )
         auction = self.datasource.get_data(with_credentials=True)
 
         bids_information = get_active_bids(auction)
-        self.auction_document = open_bidders_name(self.auction_document, bids_information)
-
-        self.save_auction_document()
+        with update_auction_document(self.context, self.database) as auction_document:
+            open_bidders_name(auction_document, bids_information)
 
     def prepare_auction_document(self):
-        public_document = self.get_auction_document()
+        public_document = self.database.get_auction_document(self.context['auction_doc_id'])
 
-        self.auction_document = {}
+        auction_document = {}
         if public_document:
-            self.auction_document = {"_rev": public_document["_rev"]}
+            auction_document = {"_rev": public_document["_rev"]}
         if self.debug:
-            self.auction_document['mode'] = 'test'
-            self.auction_document['test_auction_data'] = deepcopy(
+            auction_document['mode'] = 'test'
+            auction_document['test_auction_data'] = deepcopy(
                 self._auction_data
             )
 
         self.synchronize_auction_info(prepare=True)
 
-        self._prepare_auction_document_data()
+        self._prepare_auction_document_data(auction_document)
 
         if self.worker_defaults.get('sandbox_mode', False):
-            self.auction_document['stages'] = self.prepare_auction_stages(
+            auction_document['stages'] = self.prepare_auction_stages(
                 self.startDate,
-                deepcopy(self.auction_document),
+                deepcopy(auction_document),
                 fast_forward=True
             )
         else:
-            self.auction_document['stages'] = self.prepare_auction_stages(
+            auction_document['stages'] = self.prepare_auction_stages(
                 self.startDate,
-                deepcopy(self.auction_document)
+                deepcopy(auction_document)
             )
+        self.database.save_auction_document(
+            auction_document, self.context['auction_doc_id']
+        )
 
-        self.save_auction_document()
-
-    def _prepare_auction_document_data(self):
-        self.auction_document.update({
-            "_id": self.auction_doc_id,
+    def _prepare_auction_document_data(self, auction_document):
+        auction_document.update({
+            "_id": self.context['auction_do_id'],
             "stages": [],
             "auctionID": self._auction_data["data"].get("auctionID", ""),
             "procurementMethodType": self._auction_data["data"].get(
@@ -305,10 +321,8 @@ class Auction(DBServiceMixin,
             for lang in ADDITIONAL_LANGUAGES:
                 lang_key = "{}_{}".format(key, lang)
                 if lang_key in self._auction_data["data"]:
-                    self.auction_document[lang_key] = self._auction_data["data"][lang_key]
-            self.auction_document[key] = self._auction_data["data"].get(
-                key, ""
-            )
+                    auction_document[lang_key] = self._auction_data["data"][lang_key]
+            auction_document[key] = self._auction_data["data"].get(key, "")
 
     def synchronize_auction_info(self, prepare=False):
         self._set_auction_data(prepare)
@@ -334,17 +348,17 @@ class Auction(DBServiceMixin,
             )
             del auction_data
         else:
-            self.get_auction_document()
-            if self.auction_document:
-                self.auction_document["current_stage"] = -100
-                self.save_auction_document()
+            auction_document = self.database.get_auction_document(self.context['auction_doc_id'])
+            if auction_document:
+                auction_document["current_stage"] = -100
+                self.database.save_auction_document(auction_document, self.context['auction_doc_id'])
                 LOGGER.warning("Cancel auction: {}".format(
-                    self.auction_doc_id
+                    self.context['auction_doc_id']
                 ), extra={"JOURNAL_REQUEST_ID": request_id,
                           "MESSAGE_ID": AUCTION_WORKER_API_AUCTION_CANCEL})
             else:
                 LOGGER.error("Auction {} not exists".format(
-                    self.auction_doc_id
+                    self.context['auction_doc_id']
                 ), extra={
                     "JOURNAL_REQUEST_ID": request_id,
                     "MESSAGE_ID": AUCTION_WORKER_API_AUCTION_NOT_EXIST
