@@ -6,6 +6,11 @@ from copy import deepcopy
 from datetime import datetime, time, timedelta
 
 from openprocurement.auction.worker_core.constants import TIMEZONE
+from openprocurement.auction.worker_core.utils import prepare_service_stage
+
+from openprocurement.auction.gong.constants import (
+    PAUSE_DURATION, DEADLINE_HOUR, END, MAIN_ROUND
+)
 
 
 def prepare_results_stage(bidder_id="", bidder_name="", amount="", time=""):
@@ -19,6 +24,32 @@ def prepare_results_stage(bidder_id="", bidder_name="", amount="", time=""):
             ru="Участник №{}".format(bidder_name)
         )
     )
+    return stage
+
+
+def prepare_auction_stages(stage_start, auction_data, fast_forward=False):
+    pause_stage = prepare_service_stage(start=stage_start.isoformat())
+    main_round_stage = {}
+    stages = [pause_stage, main_round_stage]
+
+    stage_start += timedelta(seconds=PAUSE_DURATION)
+    deadline = set_specific_hour(stage_start, DEADLINE_HOUR)
+    if stage_start < deadline:
+        main_round_stage.update({
+            'start': stage_start.isoformat(),
+            'type': MAIN_ROUND,
+            'amount': auction_data['value']['amount'] + auction_data['minimalStep']['amount'],
+            'time': ''
+        })
+
+    return stages
+
+
+def prepare_end_stage(start):
+    stage = {
+        'start': start.isoformat(),
+        'type': END,
+    }
     return stage
 
 
