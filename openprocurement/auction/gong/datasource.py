@@ -168,7 +168,7 @@ class OpenProcurementAPIDataSource(object):
 
         if results:
             bids_information = get_active_bids(results)
-            new_db_document = open_bidders_name(db_document, bids_information)
+            new_db_document = open_bidders_name(deepcopy(db_document), bids_information)
 
             if doc_id and bids_information:
                 # TODO: open bidders names in auction protocol

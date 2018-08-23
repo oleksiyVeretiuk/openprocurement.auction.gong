@@ -61,7 +61,6 @@ def get_active_bids(results):
 
 
 def open_bidders_name(auction_document, bids_information):
-    auction_document = deepcopy(auction_document)
     for field in ['results', 'stages']:
         for index, stage in enumerate(auction_document[field]):
             if 'bidder_id' in stage and stage['bidder_id'] in bids_information:
@@ -76,10 +75,11 @@ def open_bidders_name(auction_document, bids_information):
 
 
 @contextmanager
-def update_auction_document(auction):
-    yield auction.get_auction_document()
-    if auction.auction_document:
-        auction.save_auction_document()
+def update_auction_document(context, database):
+    auction_document = deepcopy(context['auction_document'])
+    yield auction_document
+    database.save_auction_document(auction_document, context['auction_doc_id'])
+    context['auction_document'].update(auction_document)
 
 
 @contextmanager
