@@ -7,19 +7,16 @@ from zope.component.globalregistry import getGlobalSiteManager
 from couchdb import Database, Session
 from gevent.event import Event
 from gevent.lock import BoundedSemaphore
-from yaml import safe_dump as yaml_dump
 
 from openprocurement.auction.gong.journal import (
     AUCTION_WORKER_SERVICE_AUCTION_RESCHEDULE,
     AUCTION_WORKER_SERVICE_AUCTION_NOT_FOUND,
     AUCTION_WORKER_SERVICE_AUCTION_STATUS_CANCELED,
     AUCTION_WORKER_SERVICE_AUCTION_CANCELED,
-    AUCTION_WORKER_SERVICE_END_AUCTION,
     AUCTION_WORKER_SERVICE_STOP_AUCTION_WORKER,
     AUCTION_WORKER_SERVICE_END_FIRST_PAUSE,
     AUCTION_WORKER_API_AUCTION_CANCEL,
     AUCTION_WORKER_API_AUCTION_NOT_EXIST,
-    AUCTION_WORKER_SERVICE_START_NEXT_STAGE
 )
 from openprocurement.auction.utils import (
     delete_mapping,
@@ -32,13 +29,13 @@ from openprocurement.auction.gong.constants import (
     MULTILINGUAL_FIELDS,
     ADDITIONAL_LANGUAGES,
     PRESTARTED,
-    END,
     DEADLINE_HOUR,
     ROUND_DURATION
 )
 from openprocurement.auction.gong.context import IContext
 from openprocurement.auction.gong.datasource import IDataSource
 from openprocurement.auction.gong.database import IDatabase
+from openprocurement.auction.gong.scheduler import IJobService
 from openprocurement.auction.gong.server import run_server
 from openprocurement.auction.gong.scheduler import SCHEDULER
 
@@ -68,38 +65,9 @@ class Auction(object):
         self.datasource = gsm.queryUtility(IDataSource)
         self.database = gsm.queryUtility(IDatabase)
         self.context = gsm.queryUtility(IContext)
+        self.job_service = gsm.queryUtility(IJobService)
 
-    def add_ending_main_round_job(self, start):
-        # Add job that should end auction
-        SCHEDULER.add_job(
-            self.end_auction,
-            'date',
-            run_date=start,
-            name='End of Auction',
-            id='auction:{}'.format(END)
-        )
-
-    def add_pause_job(self, start):
-        SCHEDULER.add_job(
-            self.switch_to_next_stage,
-            'date',
-            run_date=start,
-            name='End of Pause',
-            id='auction:pause'
-        )
-
-    def switch_to_next_stage(self):
-        request_id = generate_request_id()
-
-        with utils.lock_server(self.context['server_actions']):
-            with utils.update_auction_document(self.context, self.database) as auction_document:
-                auction_document["current_stage"] += 1
-
-        LOGGER.info('---------------- Start stage {0} ----------------'.format(
-            self.context['auction_document']["current_stage"]),
-            extra={"JOURNAL_REQUEST_ID": request_id,
-                   "MESSAGE_ID": AUCTION_WORKER_SERVICE_START_NEXT_STAGE}
-        )
+        self.context['end_auction_event'] = self._end_auction_event
 
     def schedule_auction(self):
         self.context['auction_document'] = self.database.get_auction_document(
@@ -127,17 +95,18 @@ class Auction(object):
 
         # Add job that switch current_stage to round stage
         start = utils.convert_datetime(self.context['auction_document']['stages'][1]['start'])
-        self.add_pause_job(start)
+        self.job_service.add_pause_job(start)
 
         # Add job that end auction
         start = utils.convert_datetime(self.context['auction_document']['stages'][1]['start']) + timedelta(seconds=ROUND_DURATION)
-        self.add_ending_main_round_job(start)
+        self.job_service.add_ending_main_round_job(start)
 
         self.server = run_server(
             self,
             None,  # TODO: add mapping expire
             LOGGER
         )
+        self.context['server'] = self.server
 
     def wait_to_end(self):
         request_id = generate_request_id()
@@ -162,47 +131,6 @@ class Auction(object):
             LOGGER.info("Switched current stage to {}".format(
                 auction_document['current_stage']
             ))
-
-    def end_auction(self):
-        request_id = generate_request_id()
-        LOGGER.info(
-            '---------------- End auction ----------------',
-            extra={"JOURNAL_REQUEST_ID": request_id,
-                   "MESSAGE_ID": AUCTION_WORKER_SERVICE_END_AUCTION}
-        )
-
-        LOGGER.debug(
-            "Stop server", extra={"JOURNAL_REQUEST_ID": request_id}
-        )
-        if self.server:
-            self.server.stop()
-
-        delete_mapping(self.worker_defaults, self.context['auction_do_id'])
-        LOGGER.debug(
-            "Clear mapping", extra={"JOURNAL_REQUEST_ID": request_id}
-        )
-
-        auction_end = datetime.now(TIMEZONE)
-        stage = utils.prepare_end_stage(auction_end)
-        auction_document = deepcopy(self.context['auction_document'])
-        auction_document["stages"].append(stage)
-        auction_document["current_stage"] = len(self.context['auction_document']["stages"]) - 1
-
-        # TODO: work with audit
-        LOGGER.info(
-            'Audit data: \n {}'.format(yaml_dump(self.audit)),
-            extra={"JOURNAL_REQUEST_ID": request_id}
-        )
-        LOGGER.info(self.audit)
-
-        auction_document['endDate'] = auction_end.isoformat()
-        result = self.datasource.update_source_object(self._auction_data, auction_document, self.audit)
-        if result:
-            if isinstance(result, dict):
-                self.context['auction_document'] = result
-            self.database.save_auction_document(self.context['auction_document'], self.context['auction_doc_id'])
-
-        self._end_auction_event.set()
 
     def cancel_auction(self):
         self.context['auction_document'] = self.database.get_auction_document(
