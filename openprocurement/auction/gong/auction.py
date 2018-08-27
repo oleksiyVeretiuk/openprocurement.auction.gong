@@ -205,6 +205,7 @@ class Auction(object):
         self.database.save_auction_document(
             auction_document, self.context['auction_doc_id']
         )
+        self.datasource.set_participation_urls(self._auction_data)
 
     def _prepare_auction_document_data(self, auction_document):
         auction_document.update({
