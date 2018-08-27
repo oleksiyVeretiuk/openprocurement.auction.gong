@@ -17,6 +17,7 @@ from openprocurement.auction.gong.auction import Auction, SCHEDULER
 from openprocurement.auction.gong.context import prepare_context, IContext
 from openprocurement.auction.gong.database import prepare_database, IDatabase
 from openprocurement.auction.gong.datasource import prepare_datasource, IDataSource
+from openprocurement.auction.gong.scheduler import prepare_job_service, IJobService
 
 
 def register_utilities(worker_config, auction_id):
@@ -42,6 +43,10 @@ def register_utilities(worker_config, auction_id):
     # during applying bids or updating auction document
     context['server_actions'] = BoundedSemaphore()
     gsm.registerUtility(context, IContext)
+
+    # Register JobService
+    job_service = prepare_job_service()
+    gsm.registerUtility(job_service, IJobService)
 
 
 def main():
