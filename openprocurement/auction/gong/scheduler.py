@@ -8,7 +8,7 @@ from zope.interface import (
     Interface,
     implementer,
 )
-from zope.component import getGlobalSiteManager as gsm
+from zope.component import getGlobalSiteManager
 
 from apscheduler.schedulers.gevent import GeventScheduler
 from openprocurement.auction.worker_core.constants import TIMEZONE
@@ -33,7 +33,7 @@ from openprocurement.auction.gong.utils import (
     prepare_end_stage
 )
 
-LOGGER = logging.getLogger('Auction Worker')
+LOGGER = logging.getLogger('Auction Worker Gong')
 
 SCHEDULER = GeventScheduler(job_defaults={"misfire_grace_time": 100},
                             executors={'default': AuctionsExecutor()},
@@ -49,11 +49,13 @@ class IJobService(Interface):
 class JobService(object):
 
     def __init__(self):
+        gsm = getGlobalSiteManager()
+
         self.context = gsm.queryUtility(IContext)
         self.database = gsm.queryUtility(IDatabase)
         self.datasource = gsm.queryUtility(IDataSource)
 
-    def add_pause_job(self, job_start_date):
+    def add_ending_main_round_job(self, job_start_date):
         SCHEDULER.add_job(
             self.end_auction,
             'date',
@@ -62,7 +64,7 @@ class JobService(object):
             id='auction:{}'.format(END)
         )
 
-    def add_ending_main_round_job(self, job_start_date):
+    def add_pause_job(self, job_start_date):
         SCHEDULER.add_job(
             self.switch_to_next_stage,
             'date',
@@ -98,7 +100,7 @@ class JobService(object):
         if self.context.get('server'):
             self.context['server'].stop()
 
-        delete_mapping(self.context['worker_defaults'], self.context['auction_do_id'])
+        delete_mapping(self.context['worker_defaults'], self.context['auction_doc_id'])
         LOGGER.debug(
             "Clear mapping", extra={"JOURNAL_REQUEST_ID": request_id}
         )
@@ -111,16 +113,20 @@ class JobService(object):
 
         # TODO: work with audit
         LOGGER.info(
-            'Audit data: \n {}'.format(yaml_dump(self.audit)),
+            'Audit data: \n {}'.format(yaml_dump(self.context['audit'])),
             extra={"JOURNAL_REQUEST_ID": request_id}
         )
-        LOGGER.info(self.audit)
+        LOGGER.info(self.context['audit'])
 
         auction_document['endDate'] = auction_end.isoformat()
-        result = self.datasource.update_source_object(self._auction_data, auction_document, self.audit)
+        result = self.datasource.update_source_object(self.context['auction_data'], auction_document, self.context['audit'])
         if result:
             if isinstance(result, dict):
                 self.context['auction_document'] = result
             self.database.save_auction_document(self.context['auction_document'], self.context['auction_doc_id'])
 
         self.context['end_auction_event'].set()
+
+
+def prepare_job_service():
+    return JobService()
