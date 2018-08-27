@@ -21,7 +21,7 @@ from openprocurement.auction.gong.journal import (
 )
 from openprocurement.auction.gong.utils import set_specific_hour, get_round_ending_time
 
-LOGGER = logging.getLogger("Auction Worker")
+LOGGER = logging.getLogger("Auction Worker Gong")
 
 
 class BidsHandler(object):

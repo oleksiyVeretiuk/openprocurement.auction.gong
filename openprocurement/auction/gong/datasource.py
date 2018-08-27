@@ -32,7 +32,7 @@ from openprocurement.auction.gong.journal import (
 )
 
 
-LOGGER = logging.getLogger("Auction Worker")
+LOGGER = logging.getLogger("Auction Worker Gong")
 
 
 class IDataSource(Interface):
