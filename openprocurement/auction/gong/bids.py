@@ -13,6 +13,7 @@ from openprocurement.auction.gong import utils
 from openprocurement.auction.gong.context import IContext
 from openprocurement.auction.gong.constants import ROUND_DURATION, BIDS_KEYS_FOR_COPY, DEADLINE_HOUR
 from openprocurement.auction.gong.database import IDatabase
+from openprocurement.auction.gong.scheduler import IJobService
 from openprocurement.auction.gong.scheduler import SCHEDULER
 from openprocurement.auction.gong.journal import (
     AUCTION_WORKER_SERVICE_END_BID_STAGE,
@@ -31,6 +32,7 @@ class BidsHandler(object):
         gsm = getGlobalSiteManager()
         self.context = gsm.queryUtility(IContext)
         self.database = gsm.queryUtility(IDatabase)
+        self.job_service = gsm.queryUtility(IJobService)
 
         self.context['bids_mapping'] = {}  # TODO: should be created during Auction initialization
         self.context['_bids_data'] = dd(list)
@@ -89,11 +91,10 @@ class BidsHandler(object):
                 round_start_date, ROUND_DURATION, deadline
             )
 
-        # TODO: implement scheduler utility
-        #     self.add_pause_job(round_start_date)
-        #     self.add_ending_main_round_job(round_end_date)
-        # else:
-        #     self.add_ending_main_round_job(deadline)
+            self.job_service.add_pause_job(round_start_date)
+            self.job_service.add_ending_main_round_job(round_end_date)
+        else:
+            self.job_service.add_ending_main_round_job(deadline)
 
     def filter_bids_keys(self, bids):
         filtered_bids_data = []
