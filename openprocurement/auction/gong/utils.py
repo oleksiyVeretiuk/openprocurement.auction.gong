@@ -121,7 +121,14 @@ def lock_server(semaphore):
 
 
 def prepare_audit():
-    pass
+    protocol = {
+        "timeline": {
+            "auction_start": {
+                "initial_bids": []
+            }
+        }
+    }
+    return protocol
 
 
 def convert_datetime(datetime_stamp):
