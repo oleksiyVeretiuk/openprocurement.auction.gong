@@ -13,7 +13,10 @@ from openprocurement.auction.helpers.system import get_lisener
 from openprocurement.auction.event_source import (
     sse, push_timestamps_events, check_clients
 )
-from openprocurement.auction.utils import create_mapping
+from openprocurement.auction.utils import (
+    create_mapping,
+    generate_request_id
+)
 from openprocurement.auction.worker_core.server import (
     _LoggerStream, AuctionsWSGIHandler
 )
@@ -51,7 +54,7 @@ def run_server(auction, mapping_expire_time, logger, timezone='Europe/Kiev', bid
     app.logger_name = logger.name
     app._logger = logger
     app.config['timezone'] = tz(timezone)
-    app.config['SESSION_COOKIE_PATH'] = '/{}/{}'.format(cookie_path, auction.auction_doc_id)
+    app.config['SESSION_COOKIE_PATH'] = '/{}/{}'.format(cookie_path, auction.context['auction_doc_id'])
     app.config['SESSION_COOKIE_NAME'] = 'auction_session'
     app.oauth = OAuth(app)
     app.gsm = getGlobalSiteManager()
@@ -74,11 +77,13 @@ def run_server(auction, mapping_expire_time, logger, timezone='Europe/Kiev', bid
     os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = 'true'
 
     # Start server on unused port
+    request_id = generate_request_id()
+
     listener = get_lisener(auction.worker_defaults["STARTS_PORT"],
                           host=auction.worker_defaults.get("WORKER_BIND_IP", ""))
     app.logger.info(
         "Start server on {0}:{1}".format(*listener.getsockname()),
-        extra={"JOURNAL_REQUEST_ID": auction.request_id}
+        extra={"JOURNAL_REQUEST_ID": request_id}
     )
     server = WSGIServer(listener, app,
                         log=_LoggerStream(logger),
@@ -87,13 +92,13 @@ def run_server(auction, mapping_expire_time, logger, timezone='Europe/Kiev', bid
     # Set mapping
     mapping_value = "http://{0}:{1}/".format(*listener.getsockname())
     create_mapping(auction.worker_defaults,
-                   auction.auction_doc_id,
+                   auction.context['auction_doc_id'],
                    mapping_value)
     app.logger.info("Server mapping: {} -> {}".format(
-        auction.auction_doc_id,
+        auction.context['auction_doc_id'],
         mapping_value,
         mapping_expire_time
-    ), extra={"JOURNAL_REQUEST_ID": auction.request_id})
+    ), extra={"JOURNAL_REQUEST_ID": request_id})
 
     # Spawn events functionality
     spawn(push_timestamps_events, app,)
