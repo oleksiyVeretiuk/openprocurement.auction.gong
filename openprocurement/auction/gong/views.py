@@ -21,7 +21,7 @@ INVALIDATE_GRANT = timedelta(0, 230)
 
 def login():
     if 'bidder_id' in request.args and 'hash' in request.args:
-        for bidder_info in app.config['auction'].bidders_data:
+        for bidder_info in app.bids_handler.context['bidders_data']:
             if bidder_info['id'] == request.args['bidder_id']:
                 next_url = request.args.get('next') or request.referrer or None
                 if 'X-Forwarded-Path' in request.headers:
@@ -150,8 +150,7 @@ def post_bid():
 
 def kickclient():
     if 'remote_oauth' in session and 'client_id' in session:
-        auction = app.config['auction']
-        with auction.bids_actions:
+        with app.bids_handler.context['server_actions']:
             data = request.json
             bidder_data = get_bidder_id(app, session)
             if bidder_data:

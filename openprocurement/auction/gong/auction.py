@@ -83,6 +83,7 @@ class Auction(object):
             self.audit = utils.prepare_audit()
             self.context['audit'] = deepcopy(self.audit)
             self.context['auction_data'] = deepcopy(self._auction_data)
+            self.context['bidders_data'] = deepcopy(self.bidders_data)
 
         # Add job that starts auction server
         SCHEDULER.add_job(
