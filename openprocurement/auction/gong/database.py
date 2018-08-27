@@ -17,7 +17,7 @@ from openprocurement.auction.gong.journal import (
     AUCTION_WORKER_DB_GET_DOC_ERROR, AUCTION_WORKER_DB_GET_DOC_UNHANDLED_ERROR, AUCTION_WORKER_DB_SAVE_DOC,
     AUCTION_WORKER_DB_SAVE_DOC_ERROR, AUCTION_WORKER_DB_SAVE_DOC_UNHANDLED_ERROR)
 
-LOGGER = logging.getLogger("Auction Worker")
+LOGGER = logging.getLogger("Auction Worker Gong")
 
 
 class IDatabase(Interface):
@@ -74,7 +74,7 @@ class CouchDB(object):
         :return:
         """
         public_document = self.get_auction_document(auction_doc_id)
-        if public_document.get('_rev') != auction_document['_rev']:
+        if public_document and public_document.get('_rev') != auction_document['_rev']:
             auction_document["_rev"] = public_document["_rev"]
 
     def get_auction_document(self, auction_doc_id):
@@ -88,7 +88,7 @@ class CouchDB(object):
         retries = self.db_request_retries
         while retries:
             try:
-                public_document = self.db.get(auction_doc_id)
+                public_document = self._db.get(auction_doc_id)
                 if public_document:
                     LOGGER.info("Get auction document {0[_id]} with rev {0[_rev]}".format(public_document),
                                 extra={"JOURNAL_REQUEST_ID": request_id,
