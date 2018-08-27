@@ -39,7 +39,7 @@ from openprocurement.auction.gong.scheduler import IJobService
 from openprocurement.auction.gong.server import run_server
 from openprocurement.auction.gong.scheduler import SCHEDULER
 
-LOGGER = logging.getLogger('Auction Worker')
+LOGGER = logging.getLogger('Auction Worker Gong')
 
 
 class Auction(object):
@@ -81,6 +81,8 @@ class Auction(object):
                 )
             self.synchronize_auction_info()
             self.audit = utils.prepare_audit()
+            self.context['audit'] = deepcopy(self.audit)
+            self.context['auction_data'] = deepcopy(self._auction_data)
 
         # Add job that starts auction server
         SCHEDULER.add_job(
@@ -119,6 +121,8 @@ class Auction(object):
     def start_auction(self):
         request_id = generate_request_id()
         self.audit['timeline']['auction_start']['time'] = datetime.now(TIMEZONE).isoformat()
+        self.context['audit'] = deepcopy(self.audit)
+
         LOGGER.info(
             '---------------- Start auction  ----------------',
             extra={"JOURNAL_REQUEST_ID": request_id,
@@ -138,11 +142,11 @@ class Auction(object):
         )
         if self.context['auction_document']:
             with utils.update_auction_document(self.context, self.database) as auction_document:
-                LOGGER.info("Auction {} canceled".format(self.context['auction_do_id']),
+                LOGGER.info("Auction {} canceled".format(self.context['auction_doc_id']),
                             extra={'MESSAGE_ID': AUCTION_WORKER_SERVICE_AUCTION_CANCELED})
                 auction_document["current_stage"] = -100
                 auction_document["endDate"] = datetime.now(TIMEZONE).isoformat()
-                LOGGER.info("Change auction {} status to 'canceled'".format(self.context['auction_do_id']),
+                LOGGER.info("Change auction {} status to 'canceled'".format(self.context['auction_doc_id']),
                             extra={'MESSAGE_ID': AUCTION_WORKER_SERVICE_AUCTION_STATUS_CANCELED})
         else:
             LOGGER.info("Auction {} not found".format(self.context['auction_doc_id']),
@@ -154,12 +158,12 @@ class Auction(object):
         )
         if self.context['auction_document']:
             with utils.update_auction_document(self.context, self.database) as auction_document:
-                LOGGER.info("Auction {} has not started and will be rescheduled".format(self.context['auction_do_id']),
+                LOGGER.info("Auction {} has not started and will be rescheduled".format(self.context['auction_doc_id']),
                             extra={'MESSAGE_ID': AUCTION_WORKER_SERVICE_AUCTION_RESCHEDULE})
                 auction_document["current_stage"] = -101
                 self.database.save_auction_document(auction_document, self.context['auction_doc_id'])
         else:
-            LOGGER.info("Auction {} not found".format(self.context['auction_do_id']),
+            LOGGER.info("Auction {} not found".format(self.context['auction_doc_id']),
                         extra={'MESSAGE_ID': AUCTION_WORKER_SERVICE_AUCTION_NOT_FOUND})
 
     def post_audit(self):
@@ -209,7 +213,7 @@ class Auction(object):
 
     def _prepare_auction_document_data(self, auction_document):
         auction_document.update({
-            "_id": self.context['auction_do_id'],
+            "_id": self.context['auction_doc_id'],
             "stages": [],
             "auctionID": self._auction_data["data"].get("auctionID", ""),
             "procurementMethodType": self._auction_data["data"].get(
