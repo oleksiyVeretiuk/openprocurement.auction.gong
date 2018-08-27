@@ -9,6 +9,9 @@ class IContext(Interface):
     Interface for objects which are serves as mapping for shared objects among
     other AuctionWorker components
     """
+    def get(self, key, default=None):
+        # Should return default value if key does not exist
+        raise NotImplementedError
 
 
 @implementer(IContext)
@@ -30,6 +33,9 @@ class DictContext(object):
 
     def __setitem__(self, key, value):
         self._mapping[key] = value
+
+    def get(self, key, default=None):
+        return self._mapping.get(key, default)
 
 
 CONTEXT_MAPPING = {
