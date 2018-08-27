@@ -37,6 +37,7 @@ def register_utilities(worker_config, auction_id):
     context_config = worker_config.get('context', {})
     context = prepare_context(context_config)
     context['auction_doc_id'] = auction_id
+    context['worker_defaults'] = worker_config
     # Initializing semaphore which is used for locking WSGI server actions
     # during applying bids or updating auction document
     context['server_actions'] = BoundedSemaphore()
