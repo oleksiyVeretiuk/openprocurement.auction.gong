@@ -23,7 +23,10 @@ ENTRY_POINTS = {
     ],
     'openprocurement.auction.auctions': [
         'dgfOtherAssets = openprocurement.auction.gong.includeme:kadastralProcedure',
-    ]
+    ],
+    'openprocurement.auction.robottests': [
+        'gong = openprocurement.auction.gong.tests.functional.main:includeme'
+    ],
 }
 
 setup(name='openprocurement.auction.gong',
