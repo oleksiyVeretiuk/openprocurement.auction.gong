@@ -16,7 +16,8 @@ from openprocurement.auction.utils import (
     generate_request_id,
     get_tender_data,
     make_request,
-    get_latest_bid_for_bidder
+    get_latest_bid_for_bidder,
+    calculate_hash
 )
 from openprocurement.auction.gong.utils import (
     get_active_bids,
@@ -27,6 +28,7 @@ from openprocurement.auction.gong.journal import (
     AUCTION_WORKER_API_AUCTION_RESULT_NOT_APPROVED,
     AUCTION_WORKER_API_AUDIT_LOG_APPROVED,
     AUCTION_WORKER_API_AUDIT_LOG_NOT_APPROVED,
+    AUCTION_WORKER_SET_AUCTION_URLS
 )
 
 
@@ -48,9 +50,9 @@ class IDataSource(Interface):
 
     def update_source_object(self, external_data, db_document, history_data):
         """
-        :argument external_data
-        :argument db_document dict that is related to db
-        :argument history_data dictinary with history of auction
+        :param external_data
+        :param db_document dict that is related to db
+        :param history_data dictinary with history of auction
         To succesfully change data in db this method must return True otherwise there is no data will be
         saved in db. If you need to change db after something was posted you should return copy of db_document object
         with changes that need to be saved in db.
@@ -58,6 +60,15 @@ class IDataSource(Interface):
         raise NotImplementedError
 
     def upload_auction_history_document(self, external_data, db_document, history_data):
+        raise NotImplementedError
+
+    def set_participation_urls(self, external_data):
+        """
+        :param external_data:
+        :return:
+        This method is responsible for posting participationUrl to external source of data
+        if it needed
+        """
         raise NotImplementedError
 
 
@@ -84,6 +95,9 @@ class FileDataSource(object):
 
     def update_source_object(self, external_data, db_document, history_data):
         return True
+
+    def set_participation_urls(self, external_data):
+        pass
 
     def upload_auction_history_document(self, data):
         raise NotImplementedError
@@ -122,6 +136,9 @@ class OpenProcurementAPIDataSource(object):
         )
         self.api_token = config["resource_api_token"]
         self.source_id = config['auction_id']
+        self.auction_url = config["AUCTIONS_URL"].format(auction_id=self.source_id)
+
+        self.hash_secret = config["HASH_SECRET"]
 
         self.with_document_service = config.get('with_document_service', False)
         self.session = RequestsSession()
@@ -282,6 +299,30 @@ class OpenProcurementAPIDataSource(object):
                 "Audit log not approved.",
                 extra={"JOURNAL_REQUEST_ID": request_id,
                        "MESSAGE_ID": AUCTION_WORKER_API_AUDIT_LOG_NOT_APPROVED})
+
+    def set_participation_urls(self, external_data):
+        request_id = generate_request_id()
+        patch_data = {"data": {"auctionUrl": self.auction_url, "bids": []}}
+        for bid in external_data["data"]["bids"]:
+            if bid.get('status', 'active') == 'active':
+                participation_url = self.auction_url
+                participation_url += '/login?bidder_id={}&hash={}'.format(
+                    bid["id"],
+                    calculate_hash(bid["id"], self.hash_secret)
+                )
+                patch_data['data']['bids'].append(
+                    {"participationUrl": participation_url,
+                     "id": bid["id"]}
+                )
+            else:
+                patch_data['data']['bids'].append({"id": bid["id"]})
+        LOGGER.info("Set auction and participation urls for tender {}".format(self.source_id),
+                    extra={"JOURNAL_REQUEST_ID": request_id,
+                           "MESSAGE_ID": AUCTION_WORKER_SET_AUCTION_URLS})
+        LOGGER.info(repr(patch_data))
+        make_request(self.api_url + '/auction', patch_data,
+                     user=self.api_token,
+                     request_id=request_id, session=self.session)
 
 
 DATASOURCE_MAPPING = {
