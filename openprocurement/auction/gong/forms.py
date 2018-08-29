@@ -23,7 +23,7 @@ def validate_bid_value(form, field):
     Bid must be higher or equal to previous bidder bid amount plus minimalStep
     amount. Bid amount should also be multiple of minimalStep amount.
     """
-    stage_id = form.document['current_stage']
+    stage_id = form.document['current_stage'] if form.document['current_stage'] >= 0 else 0
     minimal_step = form.document['minimalStep']['amount']
     current_amount = form.document['stages'][stage_id].get('amount')
     if form.document['stages'][stage_id]['type'] != MAIN_ROUND:
