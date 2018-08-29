@@ -63,10 +63,14 @@ class BidsHandler(object):
 
         with utils.update_auction_document(self.context, self.database) as auction_document:
             # Creating new stages
+            bid_document = {
+                'value': {'amount': bid['amount']},
+                'minimalStep': auction_document['minimalStep']
+            }
 
             pause, main_round = utils.prepare_auction_stages(
                 utils.convert_datetime(bid['time']),
-                auction_document
+                bid_document
             )
 
             auction_document['stages'].append(pause)
