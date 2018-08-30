@@ -107,10 +107,10 @@ def open_bidders_name(auction_document, bids_information):
 
 @contextmanager
 def update_auction_document(context, database):
-    auction_document = deepcopy(context['auction_document'])
+    auction_document = context['auction_document']
     yield auction_document
     database.save_auction_document(auction_document, context['auction_doc_id'])
-    context['auction_document'].update(auction_document)
+    context['auction_document'] = auction_document
 
 
 @contextmanager

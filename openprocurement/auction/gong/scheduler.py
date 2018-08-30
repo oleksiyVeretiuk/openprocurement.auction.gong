@@ -107,7 +107,7 @@ class JobService(object):
 
         auction_end = datetime.now(TIMEZONE)
         stage = prepare_end_stage(auction_end)
-        auction_document = deepcopy(self.context['auction_document'])
+        auction_document = self.context['auction_document']
         auction_document["stages"].append(stage)
         auction_document["current_stage"] = len(self.context['auction_document']["stages"]) - 1
 
