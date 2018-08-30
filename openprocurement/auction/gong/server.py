@@ -24,6 +24,7 @@ from openprocurement.auction.worker_core.server import (
 from openprocurement.auction.gong import views
 from openprocurement.auction.gong.bids import BidsHandler
 from openprocurement.auction.gong.constants import AUCTION_SUBPATH
+from openprocurement.auction.gong.context import IContext
 from openprocurement.auction.gong.forms import BidsForm, form_handler
 
 
@@ -58,6 +59,7 @@ def run_server(auction, mapping_expire_time, logger, timezone='Europe/Kiev', bid
     app.config['SESSION_COOKIE_NAME'] = 'auction_session'
     app.oauth = OAuth(app)
     app.gsm = getGlobalSiteManager()
+    app.context = app.gsm.queryUtility(IContext)
     app.bids_form = bids_form
     app.bids_handler = bids_handler()
     app.form_handler = form_handler
