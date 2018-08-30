@@ -58,7 +58,7 @@ class Auction(object):
         self.retries = 10
         self.bidders_count = 0
         self.bidders_data = []
-        self.mapping = {}
+        self.bids_mapping = {}
 
         gsm = getGlobalSiteManager()
 
@@ -84,6 +84,7 @@ class Auction(object):
             self.context['audit'] = deepcopy(self.audit)
             self.context['auction_data'] = deepcopy(self._auction_data)
             self.context['bidders_data'] = deepcopy(self.bidders_data)
+            self.context['bids_mapping'] = deepcopy(self.bids_mapping)
 
         # Add job that starts auction server
         SCHEDULER.add_job(
@@ -308,5 +309,5 @@ class Auction(object):
 
     def _set_mapping(self):
         for index, bid in enumerate(self.bidders_data):
-            if bid['id'] not in self.mapping:
-                self.mapping[self.bidders_data[index]['id']] = len(self.mapping.keys()) + 1
+            if bid['id'] not in self.bids_mapping:
+                self.bids_mapping[self.bidders_data[index]['id']] = len(self.bids_mapping.keys()) + 1
