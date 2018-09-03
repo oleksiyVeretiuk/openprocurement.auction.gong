@@ -20,7 +20,6 @@ class TestInit(TestCouchDBDatabase):
 
     def setUp(self):
         super(TestInit, self).setUp()
-        self.request_session = mock.MagicMock()
 
         self.patch_couchdb_database = mock.patch('openprocurement.auction.gong.database.Database')
         self.patch_request_session = mock.patch('openprocurement.auction.gong.database.Session')
@@ -53,7 +52,6 @@ class TestGetDocument(TestCouchDBDatabase):
 
     def setUp(self):
         super(TestGetDocument, self).setUp()
-        self.request_session = mock.MagicMock()
 
         self.patch_couchdb_database = mock.patch('openprocurement.auction.gong.database.Database')
         self.patch_request_session = mock.patch('openprocurement.auction.gong.database.Session')
@@ -62,9 +60,8 @@ class TestGetDocument(TestCouchDBDatabase):
         self.mock_couchdb_database = self.patch_couchdb_database.start()
         self.mock_couchdb_database.return_value = self.couchdb_database
 
-        self.request_session = mock.MagicMock()
         self.mocked_request_session = self.patch_request_session.start()
-        self.mocked_request_session.return_value = self.request_session
+        self.mocked_request_session.return_value = mock.MagicMock()
 
         self.database = self.database_class(self.config)
 
@@ -131,7 +128,6 @@ class TestUpdateRevision(TestCouchDBDatabase):
 
     def setUp(self):
         super(TestUpdateRevision, self).setUp()
-        self.request_session = mock.MagicMock()
 
         self.patch_couchdb_database = mock.patch('openprocurement.auction.gong.database.Database')
         self.patch_request_session = mock.patch('openprocurement.auction.gong.database.Session')
@@ -140,9 +136,8 @@ class TestUpdateRevision(TestCouchDBDatabase):
         self.mock_couchdb_database = self.patch_couchdb_database.start()
         self.mock_couchdb_database.return_value = self.couchdb_database
 
-        self.request_session = mock.MagicMock()
         self.mocked_request_session = self.patch_request_session.start()
-        self.mocked_request_session.return_value = self.request_session
+        self.mocked_request_session.return_value = mock.MagicMock()
 
         self.database = self.database_class(self.config)
         self.database.get_auction_document = mock.MagicMock()
@@ -170,7 +165,6 @@ class TestSaveDocument(TestCouchDBDatabase):
 
     def setUp(self):
         super(TestSaveDocument, self).setUp()
-        self.request_session = mock.MagicMock()
 
         self.patch_couchdb_database = mock.patch('openprocurement.auction.gong.database.Database')
         self.patch_request_session = mock.patch('openprocurement.auction.gong.database.Session')
@@ -179,9 +173,8 @@ class TestSaveDocument(TestCouchDBDatabase):
         self.mock_couchdb_database = self.patch_couchdb_database.start()
         self.mock_couchdb_database.return_value = self.couchdb_database
 
-        self.request_session = mock.MagicMock()
         self.mocked_request_session = self.patch_request_session.start()
-        self.mocked_request_session.return_value = self.request_session
+        self.mocked_request_session.return_value = mock.MagicMock()
 
         self.database = self.database_class(self.config)
 
