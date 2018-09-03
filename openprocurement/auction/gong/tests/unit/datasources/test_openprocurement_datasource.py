@@ -16,6 +16,8 @@ class TestOpenProcurementAPIDataSource(unittest.TestCase):
             'resource_name': 'auction',
             'auction_id': '1' * 32,
             'resource_api_token': 'api_token',
+            'AUCTIONS_URL': 'localhost:8090',
+            'HASH_SECRET': 'secret',
         }
 
 
@@ -71,6 +73,8 @@ class TestInit(TestOpenProcurementAPIDataSource):
             self.config['auction_id']
         )
         self.assertEqual(datasource.api_url, url)
+        self.assertEqual(self.config['AUCTIONS_URL'], datasource.auction_url)
+        self.assertEqual(self.config['HASH_SECRET'], datasource.hash_secret)
         self.assertIs(datasource.session, self.request_session)
         self.assertIs(hasattr(datasource, 'session_ds'), False)
         self.assertEqual(self.mocked_request_session.call_count, 1)
@@ -745,8 +749,169 @@ class TestUploadFileWithoutDS(TestOpenProcurementAPIDataSource):
         )
 
 
+class TestSetParticipationUrls(TestOpenProcurementAPIDataSource):
+    def setUp(self):
+        super(TestSetParticipationUrls, self).setUp()
+
+        self.datasource = self.datasource_class(self.config)
+        self.history_data = {'auction': 'protocol'}
+
+        self.session = mock.MagicMock()
+        self.datasource.session = self.session
+
+        self.patch_make_request = mock.patch('openprocurement.auction.gong.datasource.make_request')
+        self.patch_generate_request_id = mock.patch('openprocurement.auction.gong.datasource.generate_request_id')
+        self.patch_calculate_hash = mock.patch('openprocurement.auction.gong.datasource.calculate_hash')
+
+        self.mock_make_request = self.patch_make_request.start()
+
+        self.mock_calculate_hash = self.patch_calculate_hash.start()
+        self.hash = 'hash'
+        self.mock_calculate_hash.return_value = self.hash
+
+        self.mock_generate_request_id = self.patch_generate_request_id.start()
+        self.request_id = uuid4().hex
+        self.mock_generate_request_id.return_value = self.request_id
+
+    def tearDown(self):
+        self.patch_generate_request_id.stop()
+        self.patch_make_request.stop()
+
+    def test_bid_in_active_status(self):
+        processed_bid = {
+            'id': '1' * 32,
+            'status': 'active'
+        }
+
+        external_data = {
+            'data': {
+                'bids': [processed_bid]
+            }
+        }
+
+        participation_url = self.datasource.auction_url + '/login?bidder_id={}&hash={}'.format(
+                    '1' * 32,
+                    self.hash
+                )
+
+        expected_patch = {
+            'data': {
+                'auctionUrl': self.datasource.auction_url,
+                'bids': [
+                    {
+                        'id': processed_bid['id'],
+                        'participationUrl': participation_url
+                    }
+                ]
+            }
+        }
+
+        self.datasource.set_participation_urls(external_data)
+
+        self.assertEqual(self.mock_generate_request_id.call_count, 1)
+
+        self.assertEqual(self.mock_calculate_hash.call_count, 1)
+        self.mock_calculate_hash.assert_called_with(processed_bid['id'], self.datasource.hash_secret)
+
+        self.assertEqual(self.mock_make_request.call_count, 1)
+        self.mock_make_request.assert_called_with(
+            self.datasource.api_url + '/auction',
+            expected_patch,
+            user=self.datasource.api_token,
+            request_id=self.request_id,
+            session=self.session
+        )
+
+    def test_bid_withous_status(self):
+        processed_bid = {
+            'id': '1' * 32,
+        }
+
+        external_data = {
+            'data': {
+                'bids': [processed_bid]
+            }
+        }
+
+        participation_url = self.datasource.auction_url + '/login?bidder_id={}&hash={}'.format(
+                    '1' * 32,
+                    self.hash
+                )
+
+        expected_patch = {
+            'data': {
+                'auctionUrl': self.datasource.auction_url,
+                'bids': [
+                    {
+                        'id': processed_bid['id'],
+                        'participationUrl': participation_url
+                    }
+                ]
+            }
+        }
+
+        self.datasource.set_participation_urls(external_data)
+
+        self.assertEqual(self.mock_generate_request_id.call_count, 1)
+
+        self.assertEqual(self.mock_calculate_hash.call_count, 1)
+        self.mock_calculate_hash.assert_called_with(processed_bid['id'], self.datasource.hash_secret)
+
+        self.assertEqual(self.mock_make_request.call_count, 1)
+        self.mock_make_request.assert_called_with(
+            self.datasource.api_url + '/auction',
+            expected_patch,
+            user=self.datasource.api_token,
+            request_id=self.request_id,
+            session=self.session
+        )
+
+    def test_bid_in_not_active_status(self):
+        processed_bid = {
+            'id': '1' * 32,
+            'status': 'not_active'
+        }
+
+        external_data = {
+            'data': {
+                'bids': [processed_bid]
+            }
+        }
+
+        expected_patch = {
+            'data': {
+                'auctionUrl': self.datasource.auction_url,
+                'bids': [
+                    {
+                        'id': processed_bid['id'],
+                    }
+                ]
+            }
+        }
+
+        self.datasource.set_participation_urls(external_data)
+
+        self.assertEqual(self.mock_generate_request_id.call_count, 1)
+
+        self.assertEqual(self.mock_calculate_hash.call_count, 0)
+
+        self.assertEqual(self.mock_make_request.call_count, 1)
+        self.mock_make_request.assert_called_with(
+            self.datasource.api_url + '/auction',
+            expected_patch,
+            user=self.datasource.api_token,
+            request_id=self.request_id,
+            session=self.session
+        )
+
 
 def suite():
     suite = unittest.TestSuite()
     suite.addTest(unittest.makeSuite(TestInit))
+    suite.addTest(unittest.makeSuite(TestUpdateSourceObject))
+    suite.addTest(unittest.makeSuite(TestPostResultData))
+    suite.addTest(unittest.makeSuite(TestUploadHistoryDocument))
+    suite.addTest(unittest.makeSuite(TestUploadFileWithDS))
+    suite.addTest(unittest.makeSuite(TestUploadFileWithoutDS))
+    suite.addTest(unittest.makeSuite(TestSetParticipationUrls))
     return suite
