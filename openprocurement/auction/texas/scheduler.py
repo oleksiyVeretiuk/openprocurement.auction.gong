@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 import logging
 from datetime import datetime
-from copy import deepcopy
 from yaml import safe_dump as yaml_dump
 
 from zope.interface import (
@@ -30,7 +29,8 @@ from openprocurement.auction.texas.datasource import IDataSource
 from openprocurement.auction.texas.utils import (
     lock_server,
     update_auction_document,
-    prepare_end_stage
+    prepare_end_stage,
+    approve_auction_protocol_info_on_announcement
 )
 
 LOGGER = logging.getLogger('Auction Worker Texas')
@@ -107,19 +107,22 @@ class JobService(object):
 
         auction_end = datetime.now(TIMEZONE)
         stage = prepare_end_stage(auction_end)
-        auction_document = self.context['auction_document']
-        auction_document["stages"].append(stage)
-        auction_document["current_stage"] = len(self.context['auction_document']["stages"]) - 1
 
-        # TODO: work with audit
+        with update_auction_document(self.context, self.database) as auction_document:
+            auction_document["stages"].append(stage)
+            auction_document["current_stage"] = len(auction_document["stages"]) - 1
+            auction_document['endDate'] = auction_end.isoformat()
+
+        approve_auction_protocol_info_on_announcement(self.context)
         LOGGER.info(
-            'Audit data: \n {}'.format(yaml_dump(self.context['audit'])),
+            'Audit data: \n {}'.format(yaml_dump(self.context['auction_protocol'])),
             extra={"JOURNAL_REQUEST_ID": request_id}
         )
-        LOGGER.info(self.context['audit'])
+        LOGGER.info(self.context['auction_protocol'])
 
-        auction_document['endDate'] = auction_end.isoformat()
-        result = self.datasource.update_source_object(self.context['auction_data'], auction_document, self.context['audit'])
+        result = self.datasource.update_source_object(
+            self.context['auction_data'], self.context['auction_document'], self.context['auction_protocol']
+        )
         if result:
             if isinstance(result, dict):
                 self.context['auction_document'] = result

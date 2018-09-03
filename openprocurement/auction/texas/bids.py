@@ -1,17 +1,15 @@
 # -*- coding: utf-8 -*-
 import logging
-from collections import defaultdict as dd
-from copy import deepcopy
 from datetime import datetime
 
 from zope.component import getGlobalSiteManager
 
-from openprocurement.auction.utils import generate_request_id
+from openprocurement.auction.utils import generate_request_id, sorting_by_amount
 from openprocurement.auction.worker_core.constants import TIMEZONE
 
 from openprocurement.auction.texas import utils
 from openprocurement.auction.texas.context import IContext
-from openprocurement.auction.texas.constants import ROUND_DURATION, BIDS_KEYS_FOR_COPY, DEADLINE_HOUR
+from openprocurement.auction.texas.constants import ROUND_DURATION, DEADLINE_HOUR
 from openprocurement.auction.texas.database import IDatabase
 from openprocurement.auction.texas.scheduler import IJobService
 from openprocurement.auction.texas.scheduler import SCHEDULER
@@ -19,7 +17,8 @@ from openprocurement.auction.texas.journal import (
     AUCTION_WORKER_SERVICE_END_BID_STAGE,
     AUCTION_WORKER_SERVICE_START_NEXT_STAGE
 )
-from openprocurement.auction.texas.utils import set_specific_hour, get_round_ending_time
+from openprocurement.auction.texas.utils import set_specific_hour, get_round_ending_time, \
+    approve_auction_protocol_info_on_bids_stage
 
 LOGGER = logging.getLogger("Auction Worker Texas")
 
@@ -34,9 +33,6 @@ class BidsHandler(object):
         self.database = gsm.queryUtility(IDatabase)
         self.job_service = gsm.queryUtility(IJobService)
 
-        self.context['bids_mapping'] = {}  # TODO: should be created during Auction initialization
-        self.context['_bids_data'] = dd(list)
-
     def add_bid(self, current_stage, bid):
         LOGGER.info(
             '------------------ Adding bid ------------------',
@@ -44,10 +40,16 @@ class BidsHandler(object):
         # Updating auction document with bid data
         with utils.update_auction_document(self.context, self.database) as auction_document:
             bid['bidder_name'] = self.context['bids_mapping'].get(bid['bidder_id'], False)
-            self.context['_bids_data'][bid['bidder_id']].append(deepcopy(bid))
             result = utils.prepare_results_stage(**bid)
             auction_document['stages'][current_stage].update(result)
-            auction_document['results'].append(result)
+            results = auction_document['results']
+            bid_index = next((i for i, res in enumerate(results)
+                              if res['bidder_id'] == bid['bidder_id']), None)
+            if bid_index is not None:
+                results[bid_index] = result
+            else:
+                results.append(result)
+            auction_document['results'] = sorting_by_amount(results)
         self.end_bid_stage(bid)
 
     def end_bid_stage(self, bid):
@@ -60,6 +62,8 @@ class BidsHandler(object):
 
         # Cleaning up preplanned jobs
         SCHEDULER.remove_all_jobs()
+
+        approve_auction_protocol_info_on_bids_stage(self.context)
 
         with utils.update_auction_document(self.context, self.database) as auction_document:
             # Creating new stages
@@ -99,14 +103,3 @@ class BidsHandler(object):
             self.job_service.add_ending_main_round_job(round_end_date)
         else:
             self.job_service.add_ending_main_round_job(deadline)
-
-    def filter_bids_keys(self, bids):
-        filtered_bids_data = []
-        for bid_info in bids:
-            bid_info_result = {key: bid_info[key] for key in BIDS_KEYS_FOR_COPY}
-            bid_info_result["bidder_name"] = self.context['bids_mapping'][bid_info_result['bidder_id']]
-            filtered_bids_data.append(bid_info_result)
-        return filtered_bids_data
-
-    def approve_bids_information(self):
-        pass

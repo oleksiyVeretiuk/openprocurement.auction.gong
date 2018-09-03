@@ -19,7 +19,6 @@ from openprocurement.auction.texas.journal import (
     AUCTION_WORKER_API_AUCTION_NOT_EXIST,
 )
 from openprocurement.auction.utils import (
-    delete_mapping,
     generate_request_id
 )
 from openprocurement.auction.worker_core.constants import TIMEZONE
@@ -54,7 +53,7 @@ class Auction(object):
         self.worker_defaults = worker_defaults
         self.db = Database(str(self.worker_defaults["COUCH_DATABASE"]),
                            session=Session(retry_delays=range(10)))
-        self.audit = {}
+        self.auction_protocol = {}
         self.retries = 10
         self.bidders_count = 0
         self.bidders_data = []
@@ -80,11 +79,11 @@ class Auction(object):
                     'test_auction_data', {}
                 )
             self.synchronize_auction_info()
-            self.audit = utils.prepare_audit()
-            self.context['audit'] = deepcopy(self.audit)
             self.context['auction_data'] = deepcopy(self._auction_data)
             self.context['bidders_data'] = deepcopy(self.bidders_data)
             self.context['bids_mapping'] = deepcopy(self.bids_mapping)
+            self.auction_protocol = utils.prepare_auction_protocol(self.context)
+            self.context['auction_protocol'] = deepcopy(self.auction_protocol)
 
         # Add job that starts auction server
         SCHEDULER.add_job(
@@ -122,8 +121,8 @@ class Auction(object):
 
     def start_auction(self):
         request_id = generate_request_id()
-        self.audit['timeline']['auction_start']['time'] = datetime.now(TIMEZONE).isoformat()
-        self.context['audit'] = deepcopy(self.audit)
+        self.auction_protocol['timeline']['auction_start']['time'] = datetime.now(TIMEZONE).isoformat()
+        self.context['auction_protocol'] = deepcopy(self.auction_protocol)
 
         LOGGER.info(
             '---------------- Start auction  ----------------',
@@ -133,7 +132,6 @@ class Auction(object):
         self.synchronize_auction_info()
         with utils.lock_server(self.context['server_actions']), utils.update_auction_document(self.context, self.database) as auction_document:
             auction_document["current_stage"] = 0
-            auction_document['current_phase'] = PRESTARTED
             LOGGER.info("Switched current stage to {}".format(
                 auction_document['current_stage']
             ))
@@ -168,7 +166,7 @@ class Auction(object):
             LOGGER.info("Auction {} not found".format(self.context['auction_doc_id']),
                         extra={'MESSAGE_ID': AUCTION_WORKER_SERVICE_AUCTION_NOT_FOUND})
 
-    def post_audit(self):
+    def post_auction_protocol(self):
         pass
 
     def post_announce(self):
@@ -222,7 +220,6 @@ class Auction(object):
                 "procurementMethodType", "default"),
             "TENDERS_API_VERSION": self.worker_defaults["resource_api_version"],
             "current_stage": -1,
-            "current_phase": "",
             "results": [],
             "procuringEntity": self._auction_data["data"].get(
                 "procuringEntity", {}

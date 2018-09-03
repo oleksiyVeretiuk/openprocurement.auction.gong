@@ -21,7 +21,8 @@ from openprocurement.auction.utils import (
 )
 from openprocurement.auction.texas.utils import (
     get_active_bids,
-    open_bidders_name
+    open_bidders_name,
+    approve_auction_protocol_info_on_announcement
 )
 from openprocurement.auction.texas.journal import (
     AUCTION_WORKER_API_APPROVED_DATA,
@@ -190,7 +191,7 @@ class OpenProcurementAPIDataSource(object):
             new_db_document = open_bidders_name(deepcopy(db_document), bids_information)
 
             if doc_id and bids_information:
-                # TODO: open bidders names in auction protocol
+                approve_auction_protocol_info_on_announcement(self.context, approved=bids_information)
                 self.upload_auction_history_document(history_data, doc_id)
                 return new_db_document
         else:

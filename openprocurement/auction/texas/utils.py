@@ -2,7 +2,6 @@
 import iso8601
 
 from contextlib import contextmanager
-from copy import deepcopy
 from datetime import datetime, time, timedelta
 
 from openprocurement.auction.worker_core.constants import TIMEZONE
@@ -120,16 +119,54 @@ def lock_server(semaphore):
     semaphore.release()
 
 
-def prepare_audit():
-    protocol = {
-        "timeline": {
-            "auction_start": {
-                "initial_bids": []
-            }
-        }
-    }
-    return protocol
-
-
 def convert_datetime(datetime_stamp):
     return iso8601.parse_date(datetime_stamp).astimezone(TIMEZONE)
+
+
+# AUCTION PROTOCOL FUNCTIONS
+
+def prepare_auction_protocol(context):
+    auction_protocol = {
+        "id": context["auction_doc_id"],
+        "auctionId": context["auction_data"]["data"].get("auctionID", ""),
+        "auction_id": context["auction_doc_id"],
+        "items": context["auction_data"]["data"].get("items", []),
+        "timeline": {
+            "auction_start": {}
+        }
+    }
+    return auction_protocol
+
+
+def prepare_bid_result(bid):
+    return {
+        'bidder': bid['bidder_id'],
+        'amount': bid['amount'],
+        'time': bid['time']
+    }
+
+
+def approve_auction_protocol_info_on_bids_stage(context):
+    auction_protocol = context['auction_protocol']
+    auction_document = context['auction_document']
+    current_stage = int(auction_document['current_stage'])
+    bid = auction_document['stages'][current_stage]
+    round_number = current_stage / 2 + 1
+    auction_protocol['timeline']['round_{}'.format(round_number)] = prepare_bid_result(bid)
+    context['auction_protocol'] = auction_protocol
+
+
+def approve_auction_protocol_info_on_announcement(context, approved=None):
+    auction_protocol = context['auction_protocol']
+    auction_document = context['auction_document']
+    auction_protocol['timeline']['results'] = {
+        "time": datetime.now(TIMEZONE).isoformat(),
+        "bids": []
+    }
+    for bid in auction_document['results']:
+        bid_result_audit = prepare_bid_result(bid)
+        if approved:
+            bid_result_audit["identification"] = approved[bid['bidder_id']].get('tenderers', [])
+            bid_result_audit["owner"] = approved[bid['bidder_id']].get('owner', '')
+        auction_protocol['timeline']['results']['bids'].append(bid_result_audit)
+    context['auction_protocol'] = auction_protocol

@@ -94,8 +94,8 @@ def main():
         auction.cancel_auction()
     elif args.cmd == 'reschedule':
         auction.reschedule_auction()
-    elif args.cmd == 'prepare_audit':
-        auction.post_audit()
+    elif args.cmd == 'prepare_auction_protocol':
+        auction.post_auction_protocol()
 
 
 if __name__ == "__main__":
