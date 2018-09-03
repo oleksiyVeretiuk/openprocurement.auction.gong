@@ -112,6 +112,8 @@ class OpenProcurementAPIDataSource(object):
     :parameter document_service_url: url to document service
     :parameter with_document_service: parameter which point if auction should use DS or not
     :parameter ds_credential credential for working with document service
+    :parameter HASH_SECRET secret to generate participation url
+    :parameter AUCTIONS_URL url of auction module
     """
     source_id = ''
     api_url = ''
